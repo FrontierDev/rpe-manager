@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#29231e" />
+      <stop offset="1" stop-color="#111318" />
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd08b" />
+      <stop offset="1" stop-color="#dc9650" />
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#background)" />
+  <rect x="25" y="25" width="462" height="462" rx="111" fill="none" stroke="#e3a24f" stroke-opacity=".5" stroke-width="2" />
+  <circle cx="256" cy="256" r="177" fill="none" stroke="#e8b777" stroke-opacity=".17" stroke-width="2" />
+  <ellipse cx="256" cy="256" rx="147" ry="78" transform="rotate(-29 256 256)" fill="none" stroke="#e8b777" stroke-opacity=".3" stroke-width="2" />
+  <circle cx="385" cy="177" r="7" fill="#f4c07b" />
+  <text x="256" y="315" fill="url(#mark)" font-family="Arial, sans-serif" font-size="164" font-weight="700" letter-spacing="-17" text-anchor="middle">RP</text>
+</svg>

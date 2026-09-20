@@ -1,0 +1,16 @@
+[package]
+name = "rpengine-manager"
+version = "0.1.0"
+description = "Desktop manager for RPEngine"
+authors = ["RPEngine Manager contributors"]
+edition = "2021"
+
+[lib]
+name = "rpengine_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

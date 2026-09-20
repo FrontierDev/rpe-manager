@@ -1,0 +1,25 @@
+# Existing task brief is provided locally and is not part of the application.
+TASK.md
+
+# Node / Vite
+node_modules/
+.npm-cache/
+dist/
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
