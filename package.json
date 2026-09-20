@@ -8,8 +8,11 @@
     "check": "tsc -b --pretty false",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "rust:lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings",
+    "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build -- --locked"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

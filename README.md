@@ -39,10 +39,23 @@ npm run tauri:dev
 npm run check
 npm run lint
 npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo check --manifest-path src-tauri/Cargo.toml
+npm run rust:fmt
+npm run rust:lint
+npm run rust:test
 npm run tauri:build
 ```
 
 `npm run tauri:build` creates the Windows bundle using the installed Rust and
 WebView2 toolchains.
+
+## Continuous integration
+
+GitHub Actions runs the same validation on every push and pull request:
+
+- TypeScript check, lint, and frontend build;
+- Rust formatting, Clippy with warnings denied, and Rust tests;
+- Windows Tauri production build.
+
+Node dependencies are installed with `npm ci` from `package-lock.json`. Rust
+commands use `Cargo.lock` with Cargo's locked mode, so CI does not update the
+resolved dependency set.
