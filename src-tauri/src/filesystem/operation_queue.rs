@@ -247,6 +247,11 @@ where
     let mut accounts = Vec::with_capacity(targets.len());
 
     for target in targets {
+        // A newly discovered account may not have loaded RPE yet, so it has no
+        // SavedVariables file to host the protocol root. Leave it untouched.
+        if matches!(target.saved_variables_path.try_exists(), Ok(false)) {
+            continue;
+        }
         let safety = safety_check();
         if !safety.can_modify_wow_files {
             accounts.push(AccountQueueResult::failure(

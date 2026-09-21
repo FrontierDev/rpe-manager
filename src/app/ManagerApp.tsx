@@ -17,6 +17,9 @@ import { RPEnginePage } from "../pages/RPEngine/RPEnginePage";
 import { SettingsPage } from "../pages/Settings/SettingsPage";
 import { SafetyPanel } from "../components/SafetyPanel";
 import { queueRuleset } from "../api/rulesets";
+import { queueDataset, queueDatasetRemoval as queueDatasetRemovalRequest } from "../api/datasets";
+import type { DatasetRow } from "../models/datasets";
+import { datasetDetailsFromExport, manualCatalogueId, nextManualRevision, sha256 } from "../state/manual-dataset";
 
 export function ManagerApp() {
   const [page, setPage] = useState<ManagerPage>("manager");
@@ -32,6 +35,7 @@ export function ManagerApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isSafetyChecking, setIsSafetyChecking] = useState(true);
+  const [manualDatasetDetails, setManualDatasetDetails] = useState<Record<string, { name: string; category: string }>>({});
 
   const recheckWowSafety = useCallback(async () => {
     setIsSafetyChecking(true);
@@ -123,8 +127,52 @@ export function ManagerApp() {
       : `Queued for ${report.accounts.length - failed.length}; ${failed.map((account) => account.error?.code ?? "failed").join(", ")}.`;
   }, [refreshProtocolState]);
 
+  const queueImportedDataset = useCallback(async (payload: string) => {
+    const installationId = configuration?.selectedInstallationId;
+    if (!installationId || !(configuration?.selectedAccountIds[installationId]?.length)) {
+      throw new Error("Select at least one account before importing.");
+    }
+    if (safetyState?.canModifyWowFiles !== true) {
+      throw new Error("Close World of Warcraft before importing a dataset.");
+    }
+    const details = datasetDetailsFromExport(payload);
+    const catalogueId = await manualCatalogueId(details.id);
+    const revision = nextManualRevision(protocolState, catalogueId);
+    const report = await queueDataset({
+      requestId: crypto.randomUUID(),
+      catalogueId,
+      datasetId: details.id,
+      revision,
+      hash: await sha256(payload),
+      payload,
+    });
+    setManualDatasetDetails((current) => ({ ...current, [details.id]: { name: details.name, category: details.category } }));
+    await refreshProtocolState();
+    const failed = report.accounts.filter((account) => account.status === "failed");
+    return failed.length === 0
+      ? `Queued for ${report.accounts.length} account(s). Reload RPE to install it.`
+      : `Failed: ${failed.map((account) => account.error?.message ?? account.error?.code ?? "queue error").join("; ")}`;
+  }, [configuration, protocolState, refreshProtocolState, safetyState]);
+
+  const queueDatasetRemoval = useCallback(async (row: DatasetRow) => {
+    const installationId = configuration?.selectedInstallationId;
+    if (!installationId || !(configuration?.selectedAccountIds[installationId]?.length)) {
+      throw new Error("Select at least one account before removing a dataset.");
+    }
+    if (safetyState?.canModifyWowFiles !== true) {
+      throw new Error("Close World of Warcraft before removing a dataset.");
+    }
+    if (!row.catalogueId || !row.datasetId || !row.hash || row.installedRevision === null) {
+      throw new Error("This dataset does not have a removable installed identity.");
+    }
+    const report = await queueDatasetRemovalRequest({ requestId: crypto.randomUUID(), catalogueId: row.catalogueId, datasetId: row.datasetId, revision: row.installedRevision, hash: row.hash });
+    await refreshProtocolState();
+    const failed = report.accounts.filter((account) => account.status === "failed");
+    return failed.length === 0 ? `Removal queued for ${report.accounts.length} account(s).` : `Failed: ${failed.map((account) => account.error?.message ?? "queue error").join("; ")}`;
+  }, [configuration, refreshProtocolState, safetyState]);
+
   const content = page === "manager"
-    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} />
+    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} />
     : <><SettingsPage configuration={configuration} discovery={localDiscovery} candidates={candidates} onToggleAccount={toggleAccount} /><section className="page-section"><SafetyPanel state={safetyState} errorMessage={safetyErrorMessage} isChecking={isSafetyChecking} onRecheck={() => void recheckWowSafety()} /></section><RPEnginePage discovery={localDiscovery} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /></>;
   return <AppFrame page={page} onNavigate={setPage}>{content}</AppFrame>;
 }
