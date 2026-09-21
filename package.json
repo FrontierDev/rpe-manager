@@ -8,6 +8,7 @@
     "check": "tsc -b --pretty false",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "vitest run",
     "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "rust:lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets",
@@ -16,11 +17,13 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@typescript-eslint/eslint-plugin": "^8.35.0",
@@ -30,6 +33,6 @@
     "globals": "^16.3.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.0",
-    "@tauri-apps/cli": "^2.0.0"
+    "vitest": "^5.0.1"
   }
 }
