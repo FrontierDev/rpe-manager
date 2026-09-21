@@ -9,8 +9,9 @@ use crate::{
     },
     configuration::ConfigurationCommandError,
     filesystem::operation_queue::{
-        queue_install_for_selected_accounts, queue_remove_for_selected_accounts,
-        QueueInstallDatasetRequest, QueueOperationError, QueueOperationReport,
+        queue_install_for_selected_accounts, queue_install_ruleset_for_selected_accounts,
+        queue_remove_for_selected_accounts, QueueInstallDatasetRequest,
+        QueueInstallRulesetRequest, QueueOperationError, QueueOperationReport,
         QueueRemoveDatasetRequest,
     },
     processes::wow::inspect_wow_processes,
@@ -35,6 +36,17 @@ pub fn queue_remove_dataset(
     let configuration = load_configuration(&app)?;
     let backups = backup_store(&app).map_err(QueueOperationCommandError::backup)?;
     queue_remove_for_selected_accounts(&configuration, &backups, inspect_wow_processes, request)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn queue_install_ruleset(
+    app: tauri::AppHandle,
+    request: QueueInstallRulesetRequest,
+) -> Result<QueueOperationReport, QueueOperationCommandError> {
+    let configuration = load_configuration(&app)?;
+    let backups = backup_store(&app).map_err(QueueOperationCommandError::backup)?;
+    queue_install_ruleset_for_selected_accounts(&configuration, &backups, inspect_wow_processes, request)
         .map_err(Into::into)
 }
 

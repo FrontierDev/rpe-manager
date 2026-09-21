@@ -18,7 +18,7 @@ export interface ProtocolStateError {
 
 export interface PendingOperation {
   requestId: string;
-  operation: "install_dataset" | "remove_dataset";
+  operation: "install_dataset" | "remove_dataset" | "install_ruleset";
   catalogueId: string;
   datasetId: string;
   revision: number;
@@ -33,7 +33,7 @@ export interface OperationFailure {
 
 export interface OperationResult {
   requestId: string;
-  operation: "install_dataset" | "remove_dataset" | "unknown";
+  operation: "install_dataset" | "remove_dataset" | "install_ruleset" | "unknown";
   status: "succeeded" | "failed";
   catalogueId?: string;
   datasetId?: string;

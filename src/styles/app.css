@@ -787,3 +787,62 @@ h2 {
     gap: 4px;
   }
 }
+
+/* Compact management-utility layout. */
+body { background: #101216; }
+.topbar { height: 48px; justify-content: flex-start; gap: 34px; padding: 0 24px; background: #171a20; }
+.brand { gap: 8px; border: 0; background: transparent; cursor: pointer; padding: 0; }
+.brand-icon { width: 26px; height: 26px; object-fit: contain; }
+.brand-name { display: block; color: #ecece9; font-size: 13px; font-weight: 650; }
+.primary-nav { gap: 2px; }
+.nav-button { padding: 6px 10px; font-size: 12px; }
+.main-content { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 20px 0 28px; }
+.page-section { padding-top: 0; margin-bottom: 24px; }
+.page-section + .page-section { margin-top: 0; }
+h1 { margin: 0 0 14px; font-size: 20px; line-height: 1.25; letter-spacing: -0.025em; }
+h2 { font-size: 15px; }
+.ui-panel { border-radius: 6px; background: #171a20; }
+.manager-selectors { display: grid; grid-template-columns: minmax(360px, 1fr) auto; gap: 10px 14px; padding: 14px; }
+.selector-row { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: center; gap: 10px; color: #c8cad0; font-size: 12px; }
+.selector-row select { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: #101216; color: #e5e5e1; font: inherit; }
+.manager-selectors > .secondary-button { align-self: center; }
+.account-selector { grid-column: 1 / -1; min-width: 0; margin: 0; padding: 0; border: 0; }
+.account-selector legend { float: left; width: 210px; padding: 0; }
+.account-select-list { display: flex; flex-wrap: wrap; gap: 5px 12px; min-height: 18px; }
+.account-select-list label { color: #d3d4d7; white-space: nowrap; }
+.account-select-list input { margin: 0 4px 0 0; vertical-align: middle; }
+.dataset-section { margin-top: 18px; }
+.section-heading { margin-bottom: 8px; }
+.dataset-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #171a20; }
+.dataset-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.dataset-table th { padding: 8px 10px; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: #1b1e25; }
+.dataset-table td { padding: 9px 10px; border-top: 1px solid rgb(255 255 255 / 6%); color: #dededb; }
+.dataset-table td[colspan] { color: var(--text-muted); }
+.dataset-status { display: inline-block; color: #9fd3ad; font-size: 11px; text-transform: capitalize; }
+.dataset-status-unavailable, .dataset-status-failed { color: #e2a099; }
+.dataset-status-pending { color: #d9b47f; }
+.secondary-button { padding: 6px 9px; border-radius: 4px; font-size: 11px; }
+.link-button { margin: 0; font-size: 11px; }
+.product-choice-panel { margin-top: 10px; padding: 12px; }
+.product-choice-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ruleset-import { display: grid; gap: 10px; margin-bottom: 10px; padding: 12px; font-size: 12px; }
+.ruleset-import label { display: grid; gap: 5px; }
+.ruleset-import textarea { min-height: 110px; resize: vertical; border: 1px solid var(--border); border-radius: 4px; background: #101216; color: #e5e5e1; font: 12px/1.4 Consolas, monospace; padding: 8px; }
+.ruleset-import > div { display: flex; align-items: center; gap: 10px; }
+.detail-panel, .empty-panel { padding: 14px; }
+.settings-row { padding: 9px 0; }
+.safety-panel { padding: 12px 14px; }
+.safety-panel h2 { margin-bottom: 3px; }
+.local-inspection { margin-top: 18px; }
+.inspection-grid { gap: 8px; }
+.inspection-card, .protocol-account { min-height: 0; padding: 13px; }
+.protocol-metrics { gap: 6px; margin-bottom: 10px; }
+.protocol-metrics > div { padding: 7px; }
+.diagnostics-list { margin-top: 10px; }
+@media (max-width: 850px) {
+  .topbar { padding: 0 16px; }
+  .main-content { width: calc(100% - 32px); }
+  .manager-selectors { grid-template-columns: 1fr; }
+  .selector-row { grid-template-columns: 1fr; gap: 4px; }
+  .account-selector legend { float: none; width: auto; margin-bottom: 4px; }
+}

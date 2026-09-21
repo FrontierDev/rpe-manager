@@ -8,6 +8,16 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 const ACCOUNT_DIRECTORY: &str = "WTF/Account";
+const STRUCTURAL_DIRECTORIES: &[&str] = &["SavedVariables"];
+
+/// Account directories are user-named and may legitimately be empty, so their
+/// contents cannot be used as a reliable validator. Exclude known WoW
+/// structural directories by name instead.
+pub(crate) fn is_structural_account_directory(name: &str) -> bool {
+    STRUCTURAL_DIRECTORIES
+        .iter()
+        .any(|directory| name.eq_ignore_ascii_case(directory))
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,7 +63,7 @@ pub fn discover_accounts(
             })?;
         if file_type.is_dir() {
             let id = entry.file_name().to_string_lossy().into_owned();
-            if !id.trim().is_empty() {
+            if !id.trim().is_empty() && !is_structural_account_directory(&id) {
                 accounts.push(WowAccount {
                     id,
                     path: entry.path(),
@@ -138,11 +148,13 @@ mod tests {
     }
 
     #[test]
-    fn returns_multiple_account_directories_and_ignores_files() {
+    fn returns_multiple_account_directories_and_ignores_files_and_structural_directories() {
         let directory = test_directory("multiple");
         let accounts_path = directory.join(ACCOUNT_DIRECTORY);
         fs::create_dir_all(accounts_path.join("ACCOUNT_B")).expect("create account B");
         fs::create_dir_all(accounts_path.join("ACCOUNT_A")).expect("create account A");
+        fs::create_dir_all(accounts_path.join("SavedVariables"))
+            .expect("create structural directory");
         fs::write(accounts_path.join("notes.txt"), "not an account")
             .expect("create non-account file");
 

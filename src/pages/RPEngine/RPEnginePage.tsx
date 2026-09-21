@@ -19,15 +19,14 @@ export function RPEnginePage({
   onRefreshProtocol,
 }: RPEnginePageProps) {
   if (discovery === null) {
-    return <section className="page-section"><h1>RPEngine</h1><Panel className="empty-panel"><h2>Select a World of Warcraft installation</h2><p className="status-detail">RPEngine status becomes available after an installation is configured.</p></Panel></section>;
+    return <section className="page-section"><Panel className="empty-panel"><h2>Protocol state</h2><p className="status-detail">Select a World of Warcraft installation to inspect local protocol state.</p></Panel></section>;
   }
 
   const { rpengine, accounts, installation } = discovery;
   return (
     <section className="page-section">
       <div className="section-heading">
-        <div><p className="section-overline">SELECTED INSTALLATION</p><h1>RPEngine</h1></div>
-        <span className="phase-badge">PERSISTED STATE</span>
+        <div><h2>Protocol state</h2></div>
       </div>
       <Panel className="detail-panel">
         <p className="status-label">INSTALLATION</p><h2>{installation.path}</h2>
@@ -51,7 +50,7 @@ function ProtocolStatusSurface({ state, error, onRefresh }: {
   return (
     <section className="local-inspection" aria-labelledby="protocol-heading">
       <div className="section-heading">
-        <div><p className="section-overline">PHASE 2</p><h2 id="protocol-heading">External-manager protocol</h2></div>
+        <div><h2 id="protocol-heading">External-manager protocol</h2></div>
         <button className="secondary-button" type="button" onClick={onRefresh}>Refresh persisted state</button>
       </div>
       {error ? <p className="discovery-error">{error}</p> : null}

@@ -68,6 +68,7 @@ impl ProtocolState {
 pub enum OperationKind {
     InstallDataset,
     RemoveDataset,
+    InstallRuleset,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -104,6 +105,11 @@ impl OperationEnvelope {
                 field: "payload",
                 message: "remove_dataset must not contain a payload".to_owned(),
             }),
+            (OperationKind::InstallRuleset, Some(payload)) if valid_ruleset_payload_header(payload) => Ok(()),
+            (OperationKind::InstallRuleset, _) => Err(ProtocolValidationError::InvalidField {
+                field: "payload",
+                message: "install_ruleset requires a non-empty RPE_RULESET_V1 payload".to_owned(),
+            }),
         }
     }
 
@@ -112,7 +118,7 @@ impl OperationEnvelope {
     /// canonical payload validation.
     pub fn validate_for_queue(&self) -> Result<(), ProtocolValidationError> {
         self.validate()?;
-        if let (OperationKind::InstallDataset, Some(payload)) = (self.operation, &self.payload) {
+        if let (OperationKind::InstallDataset | OperationKind::InstallRuleset, Some(payload)) = (self.operation, &self.payload) {
             let actual = format!("{:x}", Sha256::digest(payload.as_bytes()));
             if actual != self.hash {
                 return Err(ProtocolValidationError::InvalidField {
@@ -224,6 +230,7 @@ impl OperationResult {
 pub enum ResultOperation {
     InstallDataset,
     RemoveDataset,
+    InstallRuleset,
     Unknown,
 }
 
@@ -380,4 +387,8 @@ pub fn validate_hash(value: &str) -> Result<(), ProtocolValidationError> {
 
 pub fn valid_payload_header(payload: &str) -> bool {
     payload.starts_with("RPE_DATASET_V1\n")
+}
+
+pub fn valid_ruleset_payload_header(payload: &str) -> bool {
+    payload.starts_with("RPE_RULESET_V1\n") && payload.len() > "RPE_RULESET_V1\n".len()
 }

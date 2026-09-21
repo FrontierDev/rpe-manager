@@ -12,13 +12,14 @@ import type { SelectedWowInstallationDiscovery } from "../models/local-discovery
 import type { WowModificationSafetyState } from "../models/processes";
 import type { SelectedProtocolState } from "../models/protocol-state";
 import { selectAccounts } from "../state/configuration";
-import { getHomeState } from "./manager-state";
-import { HomePage } from "../pages/Home/HomePage";
+import { ManagerPage as ManagerPageContent } from "../pages/Manager/ManagerPage";
 import { RPEnginePage } from "../pages/RPEngine/RPEnginePage";
 import { SettingsPage } from "../pages/Settings/SettingsPage";
+import { SafetyPanel } from "../components/SafetyPanel";
+import { queueRuleset } from "../api/rulesets";
 
 export function ManagerApp() {
-  const [page, setPage] = useState<ManagerPage>("home");
+  const [page, setPage] = useState<ManagerPage>("manager");
   const [configuration, setConfiguration] = useState<ManagerConfiguration | null>(null);
   const [candidates, setCandidates] = useState<WowInstallationCandidate[]>([]);
   const [localDiscovery, setLocalDiscovery] = useState<SelectedWowInstallationDiscovery | null>(null);
@@ -26,8 +27,8 @@ export function ManagerApp() {
   const [protocolState, setProtocolState] = useState<SelectedProtocolState | null>(null);
   const [protocolErrorMessage, setProtocolErrorMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [productChoices, setProductChoices] = useState<WowInstallationProductChoice[] | null>(null);
   const [safetyErrorMessage, setSafetyErrorMessage] = useState<string | null>(null);
+  const [productChoices, setProductChoices] = useState<WowInstallationProductChoice[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isSafetyChecking, setIsSafetyChecking] = useState(true);
@@ -52,12 +53,28 @@ export function ManagerApp() {
   const refresh = useCallback(async () => {
     setIsLoading(true); setErrorMessage(null); setProductChoices(null); setLocalDiscovery(null); setProtocolState(null);
     try {
-      const [loaded, discovered] = await Promise.all([loadManagerConfiguration(), discoverWowInstallations()]);
+      // Discovery owns default-installation selection. Load after it completes
+      // so the UI sees the persisted choice in the same refresh.
+      const discovered = await discoverWowInstallations();
+      const loaded = await loadManagerConfiguration();
       setConfiguration(loaded.configuration); setCandidates(discovered);
       const selected = loaded.configuration.installations.find((installation) => installation.id === loaded.configuration.selectedInstallationId);
       if (selected !== undefined && selected.availability === "available") {
         const [discovery] = await Promise.all([discoverSelectedWowInstallation(), refreshProtocolState()]);
         setLocalDiscovery(discovery);
+        // Configurations created before account defaults existed have no map
+        // entry. Persist the initial selection once; an empty entry remains an
+        // explicit choice and is never replaced on later refreshes.
+        if (!(selected.id in loaded.configuration.selectedAccountIds)) {
+          const next = selectAccounts(
+            { configuration: loaded.configuration, recoveryMessage: null },
+            selected.id,
+            discovery.accounts.map((account) => account.id),
+          ).configuration;
+          const saved = await saveManagerConfiguration(next);
+          setConfiguration(saved);
+          await refreshProtocolState();
+        }
       }
     } catch (error) {
       setErrorMessage(isWowDiscoveryCommandError(error) || isLocalDiscoveryCommandError(error) ? error.message : "World of Warcraft discovery could not be completed.");
@@ -94,7 +111,20 @@ export function ManagerApp() {
       .catch(() => setErrorMessage("Account selection could not be saved."));
   }, [configuration, localDiscovery, refreshProtocolState]);
 
-  const home = <HomePage state={getHomeState(configuration, candidates, errorMessage)} configuration={configuration} candidates={candidates} productChoices={productChoices} safetyState={safetyState} safetyErrorMessage={safetyErrorMessage} errorMessage={errorMessage} isLoading={isLoading} isSelecting={isSelecting} isSafetyChecking={isSafetyChecking} onRefresh={() => void refresh()} onRecheckSafety={() => void recheckWowSafety()} onChooseFolder={() => void chooseInstallation()} onSelectCandidate={(path) => void chooseInstallation(path)} onSelectProduct={(path) => void chooseInstallation(path)} />;
-  const content = page === "home" ? home : page === "rpengine" ? <RPEnginePage discovery={localDiscovery} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /> : <SettingsPage configuration={configuration} discovery={localDiscovery} onToggleAccount={toggleAccount} />;
-  return <AppFrame page={page} onNavigate={setPage}>{content}<footer className="app-footer"><span>RPEngine Manager</span><span className="footer-separator">/</span><span>Windows desktop</span><span className="footer-build">LOCAL BUILD</span></footer></AppFrame>;
+  const queueImportedRuleset = useCallback(async (payload: string) => {
+    if (!payload.startsWith("RPE_RULESET_V1\n") || payload.length <= "RPE_RULESET_V1\n".length) {
+      throw new Error("Paste a complete RPE ruleset export.");
+    }
+    const report = await queueRuleset({ requestId: crypto.randomUUID(), payload });
+    await refreshProtocolState();
+    const failed = report.accounts.filter((account) => account.status === "failed");
+    return failed.length === 0
+      ? `Queued for ${report.accounts.length} account(s). Reload RPE to import it.`
+      : `Queued for ${report.accounts.length - failed.length}; ${failed.map((account) => account.error?.code ?? "failed").join(", ")}.`;
+  }, [refreshProtocolState]);
+
+  const content = page === "manager"
+    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} />
+    : <><SettingsPage configuration={configuration} discovery={localDiscovery} candidates={candidates} onToggleAccount={toggleAccount} /><section className="page-section"><SafetyPanel state={safetyState} errorMessage={safetyErrorMessage} isChecking={isSafetyChecking} onRecheck={() => void recheckWowSafety()} /></section><RPEnginePage discovery={localDiscovery} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /></>;
+  return <AppFrame page={page} onNavigate={setPage}>{content}</AppFrame>;
 }

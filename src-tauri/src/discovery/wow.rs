@@ -59,6 +59,17 @@ pub struct DiscoveryInputs {
     pub registry_installation_roots: Vec<PathBuf>,
 }
 
+/// Returns the preferred available installation. This is the sole product
+/// priority policy: Retail, PTR, Beta, then a custom installation.
+pub fn default_installation_candidate(
+    candidates: &[WowInstallationCandidate],
+) -> Option<&WowInstallationCandidate> {
+    candidates
+        .iter()
+        .filter(|candidate| candidate.availability == InstallationAvailability::Available)
+        .min_by_key(|candidate| (product_priority(candidate.product), candidate.path.clone()))
+}
+
 impl DiscoveryInputs {
     pub fn from_current_environment(configured_installations: Vec<WowInstallation>) -> Self {
         Self {
@@ -77,11 +88,14 @@ pub fn discover(inputs: &DiscoveryInputs) -> Vec<WowInstallationCandidate> {
 
     for installation in &inputs.configured_installations {
         match validate_installation_path(&installation.path) {
-            Ok(validated) => insert_candidate(
+            Ok(validated) => insert_candidate_and_siblings(
                 &mut candidates,
                 WowInstallationCandidate {
                     id: installation.id.clone(),
-                    product: validated.product.or(installation.product),
+                    // Product identity comes from the validated directory name.
+                    // A custom path must never inherit a stale product hint and
+                    // manufacture sibling candidates.
+                    product: validated.product,
                     path: validated.path,
                     availability: InstallationAvailability::Available,
                     source: WowDiscoverySource::Configured,
@@ -203,7 +217,10 @@ pub fn resolve_installation_selection(
 
     match valid_products.len() {
         1 => Ok(InstallationSelection::Exact(valid_products.remove(0))),
-        count if count > 1 => Ok(InstallationSelection::MultipleProducts(valid_products)),
+        count if count > 1 => {
+            valid_products.sort_by_key(|installation| product_priority(installation.product));
+            Ok(InstallationSelection::MultipleProducts(valid_products))
+        }
         _ if invalid_products.is_empty() => Err(WowValidationError::NoSupportedProductDirectories(
             path.to_path_buf(),
         )),
@@ -211,6 +228,15 @@ pub fn resolve_installation_selection(
             root: path.to_path_buf(),
             errors: invalid_products,
         }),
+    }
+}
+
+fn product_priority(product: Option<WowProduct>) -> u8 {
+    match product {
+        Some(WowProduct::Retail) => 0,
+        Some(WowProduct::Ptr) => 1,
+        Some(WowProduct::Beta) => 2,
+        None => 3,
     }
 }
 
@@ -237,6 +263,37 @@ pub fn installation_id(path: &Path, product: Option<WowProduct>) -> String {
     format!("wow-{product_name}-{hash:016x}")
 }
 
+fn insert_candidate_and_siblings(
+    candidates: &mut BTreeMap<PathBuf, WowInstallationCandidate>,
+    candidate: WowInstallationCandidate,
+) {
+    let sibling_root = candidate
+        .product
+        .and_then(|_| candidate.path.parent().map(Path::to_path_buf));
+    let source = candidate.source;
+    insert_candidate(candidates, candidate);
+
+    let Some(root) = sibling_root else {
+        return;
+    };
+    for (directory_name, product) in PRODUCT_DIRECTORIES {
+        let path = root.join(directory_name);
+        if let Ok(validated) = validate_installation_path(&path) {
+            insert_candidate(
+                candidates,
+                WowInstallationCandidate {
+                    id: installation_id(&validated.path, Some(product)),
+                    product: Some(product),
+                    path: validated.path,
+                    availability: InstallationAvailability::Available,
+                    source,
+                    unavailable_reason: None,
+                },
+            );
+        }
+    }
+}
+
 fn insert_candidate(
     candidates: &mut BTreeMap<PathBuf, WowInstallationCandidate>,
     candidate: WowInstallationCandidate,
@@ -261,7 +318,7 @@ fn collect_product_children(
     for (directory_name, product) in PRODUCT_DIRECTORIES {
         let path = root.join(directory_name);
         if let Ok(validated) = validate_installation_path(&path) {
-            insert_candidate(
+            insert_candidate_and_siblings(
                 candidates,
                 WowInstallationCandidate {
                     id: installation_id(&validated.path, Some(product)),
@@ -282,7 +339,7 @@ fn collect_root_and_product_children(
     source: WowDiscoverySource,
 ) {
     if let Ok(validated) = validate_installation_path(root) {
-        insert_candidate(
+        insert_candidate_and_siblings(
             candidates,
             WowInstallationCandidate {
                 id: installation_id(&validated.path, validated.product),
@@ -612,6 +669,112 @@ mod tests {
         }
     }
 
+    fn discovery_from_configured(path: PathBuf) -> Vec<WowInstallationCandidate> {
+        discover(&DiscoveryInputs {
+            configured_installations: vec![configured(path)],
+            common_installation_roots: Vec::new(),
+            battle_net_product_databases: Vec::new(),
+            battle_net_configuration_files: Vec::new(),
+            registry_installation_roots: Vec::new(),
+        })
+    }
+
+    fn candidate(product: Option<WowProduct>, id: &str) -> WowInstallationCandidate {
+        WowInstallationCandidate {
+            id: id.to_owned(),
+            product,
+            path: PathBuf::from(format!("C:/Games/{id}")),
+            availability: InstallationAvailability::Available,
+            source: WowDiscoverySource::BattleNet,
+            unavailable_reason: None,
+        }
+    }
+
+    #[test]
+    fn defaults_to_the_highest_priority_available_product() {
+        let retail = candidate(Some(WowProduct::Retail), "retail");
+        let ptr = candidate(Some(WowProduct::Ptr), "ptr");
+        let beta = candidate(Some(WowProduct::Beta), "beta");
+        let custom = candidate(None, "custom");
+
+        assert_eq!(
+            default_installation_candidate(&[retail.clone()]).map(|item| item.id.as_str()),
+            Some("retail")
+        );
+        assert_eq!(
+            default_installation_candidate(&[ptr.clone()]).map(|item| item.id.as_str()),
+            Some("ptr")
+        );
+        assert_eq!(
+            default_installation_candidate(&[retail.clone(), ptr])
+                .map(|item| item.id.as_str()),
+            Some("retail")
+        );
+        assert_eq!(
+            default_installation_candidate(&[retail, beta, custom]).map(|item| item.id.as_str()),
+            Some("retail")
+        );
+    }
+
+    #[test]
+    fn known_retail_discovers_valid_ptr_and_beta_siblings() {
+        let directory = test_directory("retail-siblings");
+        let root = directory.join("World of Warcraft");
+        let retail = root.join("_retail_");
+        wow_installation(&retail);
+        wow_installation(&root.join("_ptr_"));
+        wow_installation(&root.join("_beta_"));
+
+        let candidates = discovery_from_configured(retail);
+
+        assert_eq!(candidates.len(), 3);
+        assert!(candidates.iter().any(|item| item.product == Some(WowProduct::Ptr)));
+        assert!(candidates.iter().any(|item| item.product == Some(WowProduct::Beta)));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn known_ptr_discovers_retail_but_ignores_invalid_siblings() {
+        let directory = test_directory("ptr-siblings");
+        let root = directory.join("World of Warcraft");
+        let ptr = root.join("_ptr_");
+        wow_installation(&ptr);
+        wow_installation(&root.join("_retail_"));
+        fs::create_dir_all(root.join("_beta_")).expect("create invalid beta directory");
+
+        let candidates = discovery_from_configured(ptr);
+
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().any(|item| item.product == Some(WowProduct::Retail)));
+        assert!(!candidates.iter().any(|item| item.product == Some(WowProduct::Beta)));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn sibling_candidates_are_deduplicated_and_custom_paths_do_not_expand() {
+        let directory = test_directory("sibling-deduplication");
+        let root = directory.join("World of Warcraft");
+        let retail = root.join("_retail_");
+        wow_installation(&retail);
+        wow_installation(&root.join("_ptr_"));
+        let mut inputs = DiscoveryInputs {
+            configured_installations: vec![configured(retail)],
+            common_installation_roots: vec![root],
+            battle_net_product_databases: Vec::new(),
+            battle_net_configuration_files: Vec::new(),
+            registry_installation_roots: Vec::new(),
+        };
+        assert_eq!(discover(&inputs).len(), 2);
+
+        let custom = directory.join("custom-wow");
+        wow_installation(&custom);
+        wow_installation(&directory.join("_ptr_"));
+        inputs.configured_installations = vec![configured(custom)];
+        inputs.common_installation_roots.clear();
+        assert_eq!(discover(&inputs).len(), 1);
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
     #[test]
     fn validates_a_standard_retail_structure() {
         let directory = test_directory("retail");
@@ -741,7 +904,7 @@ mod tests {
             selection,
             InstallationSelection::MultipleProducts(products)
                 if products.len() == 2
-                    && products.iter().any(|product| product.product == Some(WowProduct::Retail))
+                    && products.first().is_some_and(|product| product.product == Some(WowProduct::Retail))
                     && products.iter().any(|product| product.product == Some(WowProduct::Ptr))
         ));
         fs::remove_dir_all(directory).expect("remove test directory");

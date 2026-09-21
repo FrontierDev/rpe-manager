@@ -73,12 +73,10 @@ impl ManagerConfiguration {
         account_ids.sort();
         account_ids.dedup();
 
-        if account_ids.is_empty() {
-            self.selected_account_ids.remove(installation_id);
-        } else {
-            self.selected_account_ids
-                .insert(installation_id.to_owned(), account_ids);
-        }
+        // Keep an empty vector: its presence records an explicit “select no
+        // accounts” choice, distinct from an installation with no preference.
+        self.selected_account_ids
+            .insert(installation_id.to_owned(), account_ids);
 
         Ok(())
     }
@@ -581,6 +579,26 @@ mod tests {
             Some(&vec!["ACCOUNT_ONE".to_owned()])
         );
 
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn configuration_persists_an_explicit_empty_account_selection() {
+        let directory = test_directory("empty-account-selection");
+        let store = ConfigurationStore::new(directory.join("configuration.json"));
+        let mut configuration = ManagerConfiguration {
+            installations: vec![installation("retail", directory.clone())],
+            ..ManagerConfiguration::default()
+        };
+        configuration
+            .set_selected_accounts("retail", Vec::new())
+            .expect("save explicit empty selection");
+
+        let saved = store.save(configuration).expect("save configuration");
+        let loaded = store.load().expect("load configuration");
+
+        assert_eq!(saved.selected_account_ids.get("retail"), Some(&Vec::new()));
+        assert_eq!(loaded.configuration.selected_account_ids.get("retail"), Some(&Vec::new()));
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 

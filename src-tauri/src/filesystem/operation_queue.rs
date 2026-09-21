@@ -12,6 +12,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::{
     configuration::ManagerConfiguration,
@@ -63,6 +64,30 @@ pub struct QueueRemoveDatasetRequest {
     pub dataset_id: String,
     pub revision: u32,
     pub hash: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueInstallRulesetRequest {
+    pub request_id: String,
+    pub payload: String,
+}
+
+impl QueueInstallRulesetRequest {
+    fn into_operation(self) -> OperationEnvelope {
+        let hash = format!("{:x}", Sha256::digest(self.payload.as_bytes()));
+        OperationEnvelope {
+            request_id: self.request_id,
+            operation: OperationKind::InstallRuleset,
+            // Rulesets are local imports. These stable envelope fields retain
+            // the v1 identity shape; RPE derives canonical ruleset identity.
+            catalogue_id: "local".to_owned(),
+            dataset_id: "ruleset-import".to_owned(),
+            revision: 1,
+            hash,
+            payload: Some(self.payload),
+        }
+    }
 }
 
 impl QueueRemoveDatasetRequest {
@@ -175,6 +200,23 @@ pub fn queue_remove_for_selected_accounts<F>(
     backups: &BackupStore,
     safety_check: F,
     request: QueueRemoveDatasetRequest,
+) -> Result<QueueOperationReport, QueueOperationError>
+where
+    F: FnMut() -> WowModificationSafetyState,
+{
+    queue_operation_for_selected_accounts(
+        configuration,
+        backups,
+        safety_check,
+        request.into_operation(),
+    )
+}
+
+pub fn queue_install_ruleset_for_selected_accounts<F>(
+    configuration: &ManagerConfiguration,
+    backups: &BackupStore,
+    safety_check: F,
+    request: QueueInstallRulesetRequest,
 ) -> Result<QueueOperationReport, QueueOperationError>
 where
     F: FnMut() -> WowModificationSafetyState,
@@ -627,6 +669,13 @@ mod tests {
         }
     }
 
+    fn ruleset_request(request_id: &str) -> QueueInstallRulesetRequest {
+        QueueInstallRulesetRequest {
+            request_id: request_id.to_owned(),
+            payload: "RPE_RULESET_V1\n{ opaque = true }".to_owned(),
+        }
+    }
+
     fn safe_state() -> WowModificationSafetyState {
         safety_state_from_process_names(["explorer.exe"])
     }
@@ -672,6 +721,46 @@ mod tests {
             original.as_bytes()
         );
         assert_eq!(fixture.backup_store.list_backups().unwrap().len(), 1);
+        fs::remove_dir_all(fixture.directory).expect("remove fixture");
+    }
+
+    #[test]
+    fn queues_a_ruleset_without_writing_the_authored_ruleset_database() {
+        let original = "RPEngineRulesetDB = { preserve = true }\n";
+        let fixture = fixture("ruleset", &[("ACCOUNT_A", original), ("ACCOUNT_B", original)]);
+
+        let report = queue_install_ruleset_for_selected_accounts(
+            &fixture.configuration,
+            &fixture.backup_store,
+            safe_state,
+            ruleset_request("ruleset-1"),
+        )
+        .expect("queue ruleset");
+
+        assert!(report.accounts.iter().all(|account| account.status == AccountQueueStatus::Queued));
+        for account_id in ["ACCOUNT_A", "ACCOUNT_B"] {
+            let source = fs::read_to_string(fixture.source_path(account_id))
+                .expect("read updated SavedVariables");
+            assert!(source.contains("RPEngineRulesetDB = { preserve = true }"));
+            let state = parse_manager_state(&source).expect("parse manager state");
+            assert!(matches!(state, ManagerSavedVariables::Present(state)
+                if state.pending_operations[0].operation == OperationKind::InstallRuleset));
+        }
+        fs::remove_dir_all(fixture.directory).expect("remove fixture");
+    }
+
+    #[test]
+    fn rejects_empty_ruleset_before_creating_a_backup() {
+        let fixture = fixture("empty-ruleset", &[("ACCOUNT_A", "")]);
+        let report = queue_install_ruleset_for_selected_accounts(
+            &fixture.configuration,
+            &fixture.backup_store,
+            safe_state,
+            QueueInstallRulesetRequest { request_id: "ruleset-empty".to_owned(), payload: String::new() },
+        );
+
+        assert!(matches!(report, Err(QueueOperationError::InvalidOperation(_))));
+        assert!(fixture.backup_store.list_backups().expect("list backups").is_empty());
         fs::remove_dir_all(fixture.directory).expect("remove fixture");
     }
 

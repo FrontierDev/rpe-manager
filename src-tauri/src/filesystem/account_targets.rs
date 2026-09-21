@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     configuration::{InstallationAvailability, ManagerConfiguration, WowInstallation},
-    discovery::wow::validate_installation_path,
+    discovery::{accounts::is_structural_account_directory, wow::validate_installation_path},
 };
 
 pub(crate) const SAVED_VARIABLES_FILE_NAME: &str = "RPEngine2.lua";
@@ -78,6 +78,11 @@ fn validate_selected_installation(
 }
 
 fn validate_account_identifier(account_id: &str) -> Result<(), SavedVariablesTargetError> {
+    if is_structural_account_directory(account_id) {
+        return Err(SavedVariablesTargetError::InvalidAccountIdentifier(
+            account_id.to_owned(),
+        ));
+    }
     let mut components = Path::new(account_id).components();
     match (components.next(), components.next()) {
         (Some(Component::Normal(_)), None) if !account_id.trim().is_empty() => Ok(()),

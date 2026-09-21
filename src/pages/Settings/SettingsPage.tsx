@@ -4,14 +4,16 @@ import { getPhaseOneDiagnostics, isDiagnosticsCommandError } from "../../api/dia
 import type { ManagerConfiguration } from "../../models/configuration";
 import type { PhaseOneDiagnostics } from "../../models/diagnostics";
 import type { SelectedWowInstallationDiscovery } from "../../models/local-discovery";
+import type { WowInstallationCandidate } from "../../models/discovery";
 
 interface SettingsPageProps {
   configuration: ManagerConfiguration | null;
   discovery: SelectedWowInstallationDiscovery | null;
   onToggleAccount: (accountId: string, selected: boolean) => void;
+  candidates: WowInstallationCandidate[];
 }
 
-export function SettingsPage({ configuration, discovery, onToggleAccount }: SettingsPageProps) {
+export function SettingsPage({ configuration, discovery, onToggleAccount, candidates }: SettingsPageProps) {
   const [view, setView] = useState<"installations" | "diagnostics">("installations");
   const [diagnostics, setDiagnostics] = useState<PhaseOneDiagnostics | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
@@ -28,14 +30,14 @@ export function SettingsPage({ configuration, discovery, onToggleAccount }: Sett
   }
 
   if (configuration === null) {
-    return <section className="page-section"><h1>Settings</h1><p className="status-detail">Loading Manager configuration...</p></section>;
+    return <section className="page-section"><h1>Advanced</h1><p className="status-detail">Loading configuration…</p></section>;
   }
 
   const selectedAccounts = discovery ? configuration.selectedAccountIds[discovery.installation.id] ?? [] : [];
   return (
     <section className="page-section">
       <div className="section-heading">
-        <div><p className="section-overline">MANAGER CONFIGURATION</p><h1>Settings</h1></div>
+        <h1>Advanced</h1>
         <div className="settings-tabs">
           <button className={view === "installations" ? "nav-button nav-button-active" : "nav-button"} type="button" onClick={() => setView("installations")}>Installations</button>
           <button className={view === "diagnostics" ? "nav-button nav-button-active" : "nav-button"} type="button" onClick={() => setView("diagnostics")}>Diagnostics</button>
@@ -46,6 +48,7 @@ export function SettingsPage({ configuration, discovery, onToggleAccount }: Sett
           <p className="status-label">CONFIGURED INSTALLATIONS</p>
           {configuration.installations.map((installation) => <div className="settings-row" key={installation.id}><div><h3>{installation.product?.toUpperCase() ?? "CUSTOM"}</h3><p className="status-detail">{installation.path}</p></div><span className={installation.availability === "available" ? "status-good" : "status-bad"}>{installation.id === configuration.selectedInstallationId ? "Selected · " : ""}{installation.availability}</span></div>)}
         </Panel>
+        <Panel className="detail-panel"><p className="status-label">INSTALLATION DISCOVERY</p><p className="status-detail">{candidates.length === 0 ? "No installation candidates found." : candidates.map((candidate) => `${candidate.product?.toUpperCase() ?? "CUSTOM"}: ${candidate.path}`).join("\n")}</p></Panel>
         {discovery ? <Panel className="detail-panel"><p className="status-label">ACCOUNTS FOR SELECTED INSTALLATION</p>{discovery.accounts.length === 0 ? <p className="status-detail">No account directories were found.</p> : discovery.accounts.map((account) => <label className="account-option" key={account.id}><input type="checkbox" checked={selectedAccounts.includes(account.id)} onChange={(event) => onToggleAccount(account.id, event.target.checked)} />{account.id}</label>)}</Panel> : null}
       </> : <DiagnosticsView diagnostics={diagnostics} error={diagnosticsError} onRefresh={() => void loadDiagnostics()} />}
     </section>

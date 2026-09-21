@@ -1456,6 +1456,7 @@ fn operation_kind_name(operation: OperationKind) -> &'static str {
     match operation {
         OperationKind::InstallDataset => "install_dataset",
         OperationKind::RemoveDataset => "remove_dataset",
+        OperationKind::InstallRuleset => "install_ruleset",
     }
 }
 
@@ -1463,6 +1464,7 @@ fn result_operation_name(operation: ResultOperation) -> &'static str {
     match operation {
         ResultOperation::InstallDataset => "install_dataset",
         ResultOperation::RemoveDataset => "remove_dataset",
+        ResultOperation::InstallRuleset => "install_ruleset",
         ResultOperation::Unknown => "unknown",
     }
 }

@@ -43,11 +43,8 @@ export function selectAccounts(
   const selectedAccountIds = [...new Set(accountIds)].sort();
   const nextSelections = { ...state.configuration.selectedAccountIds };
 
-  if (selectedAccountIds.length === 0) {
-    delete nextSelections[installationId];
-  } else {
-    nextSelections[installationId] = selectedAccountIds;
-  }
+  // An empty array is an explicit user choice, not an absent preference.
+  nextSelections[installationId] = selectedAccountIds;
 
   return {
     ...state,
