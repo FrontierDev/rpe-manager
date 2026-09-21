@@ -29,7 +29,25 @@ export function isWowDiscoveryCommandError(
 }
 
 export function discoveryErrorMessage(error: unknown): string {
-  if (isWowDiscoveryCommandError(error)) return error.message;
   if (error instanceof Error) return error.message;
+  if (typeof error === "string") {
+    const trimmed = error.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (isWowDiscoveryCommandError(parsed)) return parsed.message;
+        if (typeof parsed === "object" && parsed !== null && "message" in parsed && typeof parsed.message === "string") {
+          return parsed.message;
+        }
+      } catch {
+        // The invoke bridge can reject with plain error text rather than JSON.
+      }
+    }
+    if (trimmed.length > 0) return trimmed;
+  }
+  if (isWowDiscoveryCommandError(error)) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
   return "The selected folder could not be configured.";
 }

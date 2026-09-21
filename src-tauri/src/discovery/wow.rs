@@ -15,7 +15,6 @@ use serde_json::Value;
 
 use crate::configuration::{InstallationAvailability, WowInstallation, WowProduct};
 
-const WOW_DATA_DIRECTORY: &str = "Data";
 const WOW_EXECUTABLE_NAMES: [&str; 2] = ["Wow.exe", "Wow-64.exe"];
 const PRODUCT_DIRECTORIES: [(&str, WowProduct); 3] = [
     ("_retail_", WowProduct::Retail),
@@ -148,16 +147,6 @@ pub fn validate_installation_path(
     })?;
     if !metadata.is_dir() {
         return Err(WowValidationError::NotDirectory(path.to_path_buf()));
-    }
-
-    let data_path = path.join(WOW_DATA_DIRECTORY);
-    let data_metadata =
-        fs::metadata(&data_path).map_err(|source| WowValidationError::MissingDataDirectory {
-            path: data_path.clone(),
-            source,
-        })?;
-    if !data_metadata.is_dir() {
-        return Err(WowValidationError::DataPathIsNotDirectory(data_path));
     }
 
     let has_executable = WOW_EXECUTABLE_NAMES.iter().any(|name| {
@@ -543,7 +532,6 @@ fn registry_installation_roots() -> Vec<PathBuf> {
 
 #[derive(Debug)]
 pub enum WowValidationError {
-    DataPathIsNotDirectory(PathBuf),
     InspectPath {
         path: PathBuf,
         source: io::Error,
@@ -551,10 +539,6 @@ pub enum WowValidationError {
     InvalidProductDirectories {
         root: PathBuf,
         errors: Vec<(WowProduct, WowValidationError)>,
-    },
-    MissingDataDirectory {
-        path: PathBuf,
-        source: io::Error,
     },
     MissingExecutable(PathBuf),
     NoSupportedProductDirectories(PathBuf),
@@ -564,13 +548,6 @@ pub enum WowValidationError {
 impl fmt::Display for WowValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DataPathIsNotDirectory(path) => {
-                write!(
-                    formatter,
-                    "WoW data path {} is not a directory",
-                    path.display()
-                )
-            }
             Self::InspectPath { path, source } => {
                 write!(formatter, "Could not inspect {}: {source}", path.display())
             }
@@ -584,13 +561,6 @@ impl fmt::Display for WowValidationError {
                     write!(formatter, "; {product:?}: {error}")?;
                 }
                 Ok(())
-            }
-            Self::MissingDataDirectory { path, source } => {
-                write!(
-                    formatter,
-                    "Expected WoW data directory {}: {source}",
-                    path.display()
-                )
             }
             Self::MissingExecutable(path) => write!(
                 formatter,
@@ -629,7 +599,7 @@ mod tests {
     }
 
     fn wow_installation(root: &Path) {
-        fs::create_dir_all(root.join(WOW_DATA_DIRECTORY)).expect("create data directory");
+        fs::create_dir_all(root).expect("create installation directory");
         fs::write(root.join("Wow.exe"), "test executable").expect("create executable fixture");
     }
 
@@ -678,7 +648,7 @@ mod tests {
 
         let error = validate_installation_path(&arbitrary).expect_err("reject arbitrary folder");
 
-        assert!(error.to_string().contains("Expected WoW data directory"));
+        assert!(error.to_string().contains("Expected Wow.exe or Wow-64.exe"));
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 
@@ -781,7 +751,7 @@ mod tests {
     fn direct_product_missing_executable_keeps_the_specific_error() {
         let directory = test_directory("missing-executable");
         let product = directory.join("_retail_");
-        fs::create_dir_all(product.join(WOW_DATA_DIRECTORY)).expect("create data directory");
+        fs::create_dir_all(&product).expect("create product directory");
 
         let error =
             resolve_installation_selection(&product).expect_err("reject missing executable");
@@ -791,15 +761,16 @@ mod tests {
     }
 
     #[test]
-    fn direct_product_missing_data_keeps_the_specific_error() {
-        let directory = test_directory("missing-data");
+    fn direct_product_without_a_data_directory_is_valid_when_executable_exists() {
+        let directory = test_directory("without-data");
         let product = directory.join("_retail_");
         fs::create_dir_all(&product).expect("create product directory");
         fs::write(product.join("Wow.exe"), "test executable").expect("create executable");
 
-        let error = resolve_installation_selection(&product).expect_err("reject missing data");
+        let selection = resolve_installation_selection(&product)
+            .expect("validate an executable without requiring a Data directory");
 
-        assert!(error.to_string().contains("Expected WoW data directory"));
+        assert!(matches!(selection, InstallationSelection::Exact(_)));
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 
