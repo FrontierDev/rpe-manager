@@ -7,6 +7,8 @@ import type { SelectedProtocolState } from "../../models/protocol-state";
 import type { WowInstallationProductChoice } from "../../models/discovery";
 import type { RpeUpdateState } from "../../models/rpengine-update";
 import type { WowModificationSafetyState } from "../../models/processes";
+import type { CataloguePackage } from "../../models/catalogue";
+import { CataloguePanel } from "./CataloguePanel";
 
 interface ManagerPageProps {
   configuration: ManagerConfiguration | null;
@@ -30,6 +32,11 @@ interface ManagerPageProps {
   onRefresh: () => void;
   manualDatasetDetails: Record<string, { name: string; category: string }>;
   onQueueDatasetRemoval: (row: DatasetRow) => Promise<string>;
+  cataloguePackages: CataloguePackage[];
+  catalogueLoading: boolean;
+  catalogueError: string | null;
+  onRefreshCatalogue: () => void;
+  onQueueCataloguePackage: (pkg: CataloguePackage, password?: string) => Promise<string>;
 }
 
 export function ManagerPage(props: ManagerPageProps) {
@@ -78,6 +85,7 @@ export function ManagerPage(props: ManagerPageProps) {
       {showRulesetImport ? <Panel className="ruleset-import"><label>Ruleset export<textarea value={rulesetText} onChange={(event) => setRulesetText(event.target.value)} placeholder="Paste the RPE ruleset export" /></label><div><button className="primary-button" type="button" disabled={isQueueingRuleset} onClick={() => { setIsQueueingRuleset(true); setRulesetMessage(null); void props.onQueueRuleset(rulesetText).then(setRulesetMessage).catch((error: unknown) => setRulesetMessage(error instanceof Error ? error.message : "Ruleset could not be queued.")).finally(() => setIsQueueingRuleset(false)); }}>{isQueueingRuleset ? "Queueing…" : "Queue import"}</button>{rulesetMessage ? <span className="status-detail">{rulesetMessage}</span> : null}</div></Panel> : null}
       <DatasetTable rows={rows} isLoading={props.isLoading} onRemove={props.onQueueDatasetRemoval} />
     </section>
+    <CataloguePanel packages={props.cataloguePackages} loading={props.catalogueLoading} error={props.catalogueError} protocolState={props.protocolState} selectedAccounts={selectedAccounts} onRefresh={props.onRefreshCatalogue} onInstall={props.onQueueCataloguePackage} />
   </section>;
 }
 

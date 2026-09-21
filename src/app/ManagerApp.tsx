@@ -20,6 +20,8 @@ import { SettingsPage } from "../pages/Settings/SettingsPage";
 import { SafetyPanel } from "../components/SafetyPanel";
 import { queueRuleset } from "../api/rulesets";
 import { queueDataset, queueDatasetRemoval as queueDatasetRemovalRequest } from "../api/datasets";
+import { catalogueErrorMessage, getCataloguePackages, queueCataloguePackageInstall } from "../api/catalogue";
+import type { CataloguePackage } from "../models/catalogue";
 import type { DatasetRow } from "../models/datasets";
 import { datasetDetailsFromExport, manualCatalogueId, nextManualRevision, sha256 } from "../state/manual-dataset";
 
@@ -41,6 +43,9 @@ export function ManagerApp() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [isSafetyChecking, setIsSafetyChecking] = useState(true);
   const [manualDatasetDetails, setManualDatasetDetails] = useState<Record<string, { name: string; category: string }>>({});
+  const [cataloguePackages, setCataloguePackages] = useState<CataloguePackage[]>([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
 
   const recheckWowSafety = useCallback(async () => {
     setIsSafetyChecking(true);
@@ -57,6 +62,13 @@ export function ManagerApp() {
       setProtocolState(null);
       setProtocolErrorMessage(isProtocolStateCommandError(error) ? error.message : "Persisted RPEngine protocol state could not be read.");
     }
+  }, []);
+
+  const refreshCatalogue = useCallback(async () => {
+    setCatalogueLoading(true); setCatalogueError(null);
+    try { setCataloguePackages((await getCataloguePackages()).packages); }
+    catch (error) { setCatalogueError(catalogueErrorMessage(error, "The Esarus catalogue could not be loaded.")); }
+    finally { setCatalogueLoading(false); }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -99,7 +111,7 @@ export function ManagerApp() {
     finally { setRpeOperation(false); }
   }, [refresh, recheckWowSafety, rpeOperation, safetyState]);
 
-  useEffect(() => { void refresh(); void recheckWowSafety(); }, [recheckWowSafety, refresh]);
+  useEffect(() => { void refresh(); void recheckWowSafety(); void refreshCatalogue(); }, [recheckWowSafety, refresh, refreshCatalogue]);
 
   const chooseInstallation = useCallback(async (path?: string) => {
     setIsSelecting(true); setErrorMessage(null); setProductChoices(null);
@@ -185,8 +197,20 @@ export function ManagerApp() {
     return failed.length === 0 ? `Removal queued for ${report.accounts.length} account(s).` : `Failed: ${failed.map((account) => account.error?.message ?? "queue error").join("; ")}`;
   }, [configuration, refreshProtocolState, safetyState]);
 
+  const queueCataloguePackage = useCallback(async (pkg: CataloguePackage, password?: string) => {
+    const installationId = configuration?.selectedInstallationId;
+    if (!installationId || !(configuration?.selectedAccountIds[installationId]?.length)) throw new Error("Select at least one account before installing a catalogue package.");
+    if (safetyState?.canModifyWowFiles !== true) throw new Error("Close World of Warcraft before installing a catalogue package.");
+    if (pkg.protected && !password) throw new Error("Enter the package password.");
+    const report = await queueCataloguePackageInstall({ catalogueId: pkg.catalogueId, revision: pkg.currentRevision, password });
+    await refreshProtocolState();
+    const failed = report.accounts.filter((account) => account.status === "failed");
+    if (failed.length) throw new Error(failed.map((account) => account.error?.message ?? account.error?.code ?? "queue failure").join("; "));
+    return `Queued for ${report.accounts.length} account(s). RPE must process the request before it is installed.`;
+  }, [configuration, refreshProtocolState, safetyState]);
+
   const content = page === "manager"
-    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} rpeUpdateState={rpeUpdateState} rpeOperation={rpeOperation} rpeOperationError={rpeOperationError} safetyState={safetyState} onRpeOperation={() => void runRpeOperation()} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} />
+    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} rpeUpdateState={rpeUpdateState} rpeOperation={rpeOperation} rpeOperationError={rpeOperationError} safetyState={safetyState} onRpeOperation={() => void runRpeOperation()} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} cataloguePackages={cataloguePackages} catalogueLoading={catalogueLoading} catalogueError={catalogueError} onRefreshCatalogue={() => void refreshCatalogue()} onQueueCataloguePackage={queueCataloguePackage} />
     : <><SettingsPage configuration={configuration} discovery={localDiscovery} candidates={candidates} onToggleAccount={toggleAccount} /><section className="page-section"><SafetyPanel state={safetyState} errorMessage={safetyErrorMessage} isChecking={isSafetyChecking} onRecheck={() => void recheckWowSafety()} /></section><RPEnginePage discovery={localDiscovery} updateState={rpeUpdateState} safetyState={safetyState} isOperating={rpeOperation} operationError={rpeOperationError} onOperate={() => void runRpeOperation()} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /></>;
   return <AppFrame page={page} onNavigate={setPage}>{content}</AppFrame>;
 }

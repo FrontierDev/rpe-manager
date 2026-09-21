@@ -1216,13 +1216,16 @@ The precise Cloudflare implementation may evolve without affecting Manager or RP
 Conceptual endpoints:
 
 ~~~
-GET  /api/rpe/catalogue
-GET  /api/rpe/packages/:catalogueId
-POST /api/rpe/packages/:catalogueId/unlock
-GET  /api/rpe/packages/:catalogueId/download
+GET  /api/rpe/v1/catalogue
+GET  /api/rpe/v1/packages/:catalogueId
+GET  /api/rpe/v1/packages/:catalogueId/revisions
+GET  /api/rpe/v1/packages/:catalogueId/revisions/:revision
+GET  /api/rpe/v1/publishers
+POST /api/rpe/v1/packages/:catalogueId/unlock
+GET  /api/rpe/v1/packages/:catalogueId/revisions/:revision/download
 
-GET  /api/rpe/releases/latest
-GET  /api/rpe/releases/:version
+GET  /api/rpe/v1/releases/latest
+GET  /api/rpe/v1/releases/:version
 ~~~
 
 Publishing/admin endpoints are separate.
