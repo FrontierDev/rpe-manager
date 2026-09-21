@@ -63,7 +63,7 @@ function AddonManagement({ state, safety, operating, error, onOperate }: { state
     <p className="status-detail">{state?.status === "current" ? "Up to date" : state?.status === "update_available" ? "Update required" : state?.status === "check_failed" ? "Update checking failed; local installation state is retained." : state?.local.detail ?? state?.status.replaceAll("_", " ") ?? "Loading status"}</p>
     {state?.status === "check_failed" ? <button className="secondary-button" type="button" onClick={() => window.location.reload()}>Retry update check</button> : null}
     {actionable ? <button className="primary-button" type="button" onClick={onOperate} disabled={operating || safety?.canModifyWowFiles !== true}>{operating ? "Working…" : action}</button> : null}
-    {safety?.canModifyWowFiles === false ? <p className="discovery-error">Close World of Warcraft before modifying RPEngine.</p> : null}
+    {safety?.canModifyWowFiles === false ? <p className="discovery-error">Close World of Warcraft ({safety.matchingProcessNames.join(", ")}) before modifying RPEngine.</p> : null}
     {error ? <p className="discovery-error">{error}</p> : null}
   </Panel>;
 }

@@ -5,12 +5,15 @@ use std::{fmt, fs, path::Path};
 use serde::Serialize;
 use tauri::Manager;
 
+#[cfg(windows)]
+use crate::addon_transaction::replace_staged_addon_privileged;
+#[cfg(not(windows))]
+use crate::{addon_transaction::replace_staged_addon, processes::wow::inspect_wow_processes};
 use crate::{
-    addon_transaction::{replace_staged_addon, AddonTransactionError, AddonTransactionReport},
+    addon_transaction::{AddonTransactionError, AddonTransactionReport},
     commands::configuration::configuration_store,
     configuration::{ConfigurationCommandError, WowInstallation},
     discovery::rpengine::{discover_rpengine, RPEngineInstallation, RPEngineInstallationStatus},
-    processes::wow::inspect_wow_processes,
     release::{download_and_stage_release, fetch_latest_release, ReleaseError, RpeVersion},
 };
 
@@ -95,43 +98,108 @@ pub fn install_latest_rpengine(
     app: tauri::AppHandle,
 ) -> Result<AddonTransactionReport, ReleaseCommandError> {
     let installation = selected_installation(&app)?;
-    let cache = app
+    let staging_root = app
         .path()
         .app_cache_dir()
         .map_err(|error| ReleaseCommandError::storage(error.to_string()))?
         .join("release-staging");
-    cleanup_stale_staging(&cache);
-    let release = fetch_latest_release().map_err(ReleaseCommandError::release_message)?;
-    let staged =
-        download_and_stage_release(&release, &cache).map_err(ReleaseCommandError::release)?;
-    let result = match replace_staged_addon(&installation.path, &staged, inspect_wow_processes()) {
-        Ok(report) => Ok(report),
-        Err(error) if error.is_permission_denied() => {
+    fs::create_dir_all(&staging_root)
+        .map_err(|error| ReleaseCommandError::storage(error.to_string()))?;
+    cleanup_stale_staging(&staging_root).map_err(ReleaseCommandError::storage)?;
+
+    let operation_id = crate::elevation::operation_id();
+    let operation_directory = staging_root.join(format!("rpengine-op-{operation_id}"));
+    fs::create_dir(&operation_directory)
+        .map_err(|error| ReleaseCommandError::storage(error.to_string()))?;
+    let operation_staging = operation_directory.join("staged");
+    if let Err(error) = fs::create_dir(&operation_staging) {
+        let cleanup = fs::remove_dir_all(&operation_directory);
+        return Err(ReleaseCommandError::storage(match cleanup {
+            Ok(()) => error.to_string(),
+            Err(cleanup_error) => format!(
+                "Could not create operation staging: {error}; cleanup also failed: {cleanup_error}"
+            ),
+        }));
+    }
+
+    let result = (|| {
+        let release = fetch_latest_release().map_err(ReleaseCommandError::release_message)?;
+        let staged = download_and_stage_release(&release, &operation_staging)
+            .map_err(ReleaseCommandError::release)?;
+
+        #[cfg(windows)]
+        let transaction = if crate::elevation::process_is_elevated() {
+            replace_staged_addon_privileged(&installation.path, &staged)
+                .map_err(ReleaseCommandError::transaction)
+        } else {
             crate::elevation::replace_elevated(&installation.path, &staged)
                 .map_err(ReleaseCommandError::elevation)
+        };
+
+        #[cfg(not(windows))]
+        let transaction =
+            replace_staged_addon(&installation.path, &staged, inspect_wow_processes())
+                .map_err(ReleaseCommandError::transaction);
+
+        transaction
+    })();
+    let cleanup = fs::remove_dir_all(&operation_directory);
+    let result = match (result, cleanup) {
+        (Ok(report), Ok(())) => Ok(report),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(ReleaseCommandError::storage(format!(
+            "RPEngine replacement completed, but Manager operation storage could not be cleaned: {error}"
+        ))),
+        (Err(mut error), Err(cleanup_error)) => {
+            error.message.push_str(&format!(
+                " Manager operation storage cleanup also failed: {cleanup_error}"
+            ));
+            Err(error)
         }
-        Err(error) => Err(ReleaseCommandError::transaction(error)),
     };
-    let _ = fs::remove_dir_all(&staged.directory);
     result
 }
 
 /// Crash leftovers are safe to remove only when they are direct children of
 /// the dedicated Manager cache directory and carry our operation prefix.
-fn cleanup_stale_staging(root: &Path) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let owned = entry
-            .file_name()
-            .to_string_lossy()
-            .starts_with("rpengine-stage-");
-        if owned && path.is_dir() {
-            let _ = fs::remove_dir_all(path);
+fn cleanup_stale_staging(root: &Path) -> Result<(), String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve Manager staging directory: {error}"))?;
+    let running_processes = sysinfo::System::new_all();
+    for entry in fs::read_dir(&canonical_root)
+        .map_err(|error| format!("Could not inspect Manager staging directory: {error}"))?
+    {
+        let entry =
+            entry.map_err(|error| format!("Could not inspect staged operation: {error}"))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let owner = name
+            .strip_prefix("rpengine-op-")
+            .or_else(|| name.strip_prefix("rpengine-stage-"))
+            .and_then(|suffix| suffix.split_once('-'))
+            .and_then(|(pid, nonce)| Some((pid.parse::<u32>().ok()?, nonce.parse::<u128>().ok()?)));
+        let kind = entry
+            .file_type()
+            .map_err(|error| format!("Could not inspect {}: {error}", entry.path().display()))?;
+        let owner_is_running = owner.is_some_and(|(owner_pid, _)| {
+            running_processes
+                .processes()
+                .keys()
+                .any(|pid| pid.as_u32() == owner_pid)
+        });
+        if owner.is_some() && !owner_is_running && kind.is_dir() && !kind.is_symlink() {
+            let canonical = entry.path().canonicalize().map_err(|error| {
+                format!("Could not resolve {}: {error}", entry.path().display())
+            })?;
+            if canonical.parent() == Some(canonical_root.as_path()) {
+                fs::remove_dir_all(canonical).map_err(|error| {
+                    format!("Could not remove stale Manager operation storage: {error}")
+                })?;
+            }
         }
     }
+    Ok(())
 }
 
 fn selected_installation(app: &tauri::AppHandle) -> Result<WowInstallation, ReleaseCommandError> {
@@ -210,6 +278,23 @@ mod tests {
         );
         assert_eq!(state.status, RpeUpdateStatus::CheckFailed);
         assert_eq!(state.local.version.as_deref(), Some("2.0.alpha5"));
+    }
+
+    #[test]
+    fn stale_cleanup_removes_only_dead_manager_operation_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "rpengine-stale-cleanup-{}",
+            crate::elevation::operation_id()
+        ));
+        let dead_operation = root.join("rpengine-op-4294967295-1");
+        let unrelated = root.join("rpengine-op-not-a-manager-id");
+        fs::create_dir_all(dead_operation.join("staged")).expect("create stale operation");
+        fs::create_dir_all(&unrelated).expect("create unrelated directory");
+
+        cleanup_stale_staging(&root).expect("clean stale staging");
+        assert!(!dead_operation.exists());
+        assert!(unrelated.is_dir());
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 }
 

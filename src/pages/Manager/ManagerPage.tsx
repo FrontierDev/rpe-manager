@@ -67,6 +67,7 @@ export function ManagerPage(props: ManagerPageProps) {
         </details>
       </label>
       <div className="rpengine-version"><span>RPE: {props.rpeUpdateState?.local.version ?? props.discovery?.rpengine.version ?? "Not detected"}</span>{props.rpeUpdateState?.status === "current" ? <span>Up to date</span> : null}{props.rpeUpdateState?.status === "update_available" ? <><span>Update required</span><button className="primary-button" type="button" onClick={props.onRpeOperation} disabled={props.safetyState?.canModifyWowFiles !== true}>Update RPEngine</button></> : null}{props.rpeUpdateState?.status === "check_failed" ? <span className="discovery-error">Update check failed</span> : null}</div>
+      {props.rpeUpdateState?.status === "update_available" && props.safetyState?.canModifyWowFiles !== true ? <p className="discovery-error">{props.safetyState?.isWowRunning ? `Close World of Warcraft (${props.safetyState.matchingProcessNames.join(", ")}) before updating RPEngine.` : "Checking whether World of Warcraft is running before enabling the update."}</p> : null}
       </>}
     </Panel>
     {props.rpeOperationError ? <p className="discovery-error">{props.rpeOperationError}</p> : null}

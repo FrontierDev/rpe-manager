@@ -44,6 +44,10 @@ pub enum AddonTransactionError {
         path: PathBuf,
         source: io::Error,
     },
+    BackupCleanup {
+        path: PathBuf,
+        source: io::Error,
+    },
     Verification(String),
     Rollback {
         primary: Box<AddonTransactionError>,
@@ -81,6 +85,11 @@ impl fmt::Display for AddonTransactionError {
                 "Could not activate new addon at {}: {source}",
                 path.display()
             ),
+            Self::BackupCleanup { path, source } => write!(
+                f,
+                "Installed addon verified, but transaction backup {} could not be removed: {source}",
+                path.display()
+            ),
             Self::Verification(message) => {
                 write!(f, "Installed addon verification failed: {message}")
             }
@@ -92,21 +101,6 @@ impl fmt::Display for AddonTransactionError {
 }
 impl std::error::Error for AddonTransactionError {}
 
-impl AddonTransactionError {
-    /// A permission denial is actionable: the normal process can ask the
-    /// narrowly-scoped Windows helper to repeat this transaction elevated.
-    pub fn is_permission_denied(&self) -> bool {
-        match self {
-            Self::TargetNotWritable { source, .. }
-            | Self::CopyStaged { source, .. }
-            | Self::DisplaceExisting { source, .. }
-            | Self::ActivateNew { source, .. } => source.kind() == io::ErrorKind::PermissionDenied,
-            Self::Rollback { primary, .. } => primary.is_permission_denied(),
-            _ => false,
-        }
-    }
-}
-
 pub fn replace_staged_addon(
     installation: &Path,
     staged: &StagedRelease,
@@ -115,14 +109,13 @@ pub fn replace_staged_addon(
     replace_staged_addon_with(installation, staged, safety, verify_installation)
 }
 
-/// Entry point used only by the elevated helper.  Revalidate both paths here;
-/// the helper never accepts a generic filesystem operation.
+/// Shared elevated entry point for the helper and an already-elevated Manager.
+/// The helper validates its operation descriptor before calling this path.
 pub fn replace_staged_addon_privileged(
     installation: &Path,
     staged: &StagedRelease,
 ) -> Result<AddonTransactionReport, AddonTransactionError> {
-    let canonical_addon = installation.join(ADDON_PARENT).join(ADDON_NAME);
-    if canonical_addon.file_name().and_then(|name| name.to_str()) != Some(ADDON_NAME) {
+    if crate::discovery::wow::validate_installation_path(installation).is_err() {
         return Err(AddonTransactionError::InvalidInstallation(
             installation.to_path_buf(),
         ));
@@ -141,6 +134,20 @@ fn replace_staged_addon_with<F>(
     verify: F,
 ) -> Result<AddonTransactionReport, AddonTransactionError>
 where
+    F: Fn(&Path, &str) -> Result<(), AddonTransactionError>,
+{
+    replace_staged_addon_with_copy(installation, staged, safety, copy_directory, verify)
+}
+
+fn replace_staged_addon_with_copy<C, F>(
+    installation: &Path,
+    staged: &StagedRelease,
+    safety: WowModificationSafetyState,
+    copy: C,
+    verify: F,
+) -> Result<AddonTransactionReport, AddonTransactionError>
+where
+    C: Fn(&Path, &Path) -> io::Result<()>,
     F: Fn(&Path, &str) -> Result<(), AddonTransactionError>,
 {
     safety
@@ -170,7 +177,7 @@ where
     // The validated staging tree is Manager-owned and deliberately outside
     // the game installation. Copy only after the old directory has moved;
     // this avoids persistent .incoming directories under Interface/AddOns.
-    if let Err(primary) = copy_directory(&staged.directory.join(ADDON_NAME), &destination)
+    if let Err(primary) = copy(&staged.directory.join(ADDON_NAME), &destination)
         .map_err(|source| AddonTransactionError::ActivateNew {
             path: destination.clone(),
             source,
@@ -180,7 +187,10 @@ where
         return rollback(&destination, &backup, had_existing, primary);
     }
     if had_existing {
-        let _ = fs::remove_dir_all(&backup);
+        fs::remove_dir_all(&backup).map_err(|source| AddonTransactionError::BackupCleanup {
+            path: backup,
+            source,
+        })?;
     }
     Ok(AddonTransactionReport {
         version: staged.version.clone(),
@@ -212,11 +222,10 @@ fn rollback<T>(
         }
         if had_existing {
             fs::rename(backup, destination)?;
-            let metadata = fs::metadata(destination)?;
-            if !metadata.is_dir() {
+            let metadata = fs::symlink_metadata(destination)?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
                 return Err(io::Error::other("restored addon is not a directory"));
             }
-            let _ = fs::read_dir(destination)?.next().transpose()?;
         }
         Ok(())
     };
@@ -224,7 +233,11 @@ fn rollback<T>(
         Ok(()) => Err(primary),
         Err(error) => Err(AddonTransactionError::Rollback {
             primary: Box::new(primary),
-            rollback: error.to_string(),
+            rollback: format!(
+                "could not clean partial destination {} and restore backup {}: {error}",
+                destination.display(),
+                backup.display()
+            ),
         }),
     }
 }
@@ -243,22 +256,6 @@ fn prepare_addon_parent(installation: &Path) -> Result<PathBuf, AddonTransaction
         path: parent.clone(),
         source,
     })?;
-    let probe = parent.join(format!(
-        ".rpengine-manager-write-probe-{}",
-        transaction_nonce()
-    ));
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&probe)
-        .and_then(|file| {
-            drop(file);
-            fs::remove_file(&probe)
-        })
-        .map_err(|source| AddonTransactionError::TargetNotWritable {
-            path: parent.clone(),
-            source,
-        })?;
     Ok(parent)
 }
 
@@ -339,6 +336,34 @@ mod tests {
         )
         .expect("write old toc");
         fs::write(addon.join("stale.lua"), "old").expect("write stale file");
+        fs::create_dir_all(addon.join("nested")).expect("create nested old files");
+        fs::write(addon.join("nested/old.dat"), b"exact old bytes").expect("write nested old file");
+    }
+
+    fn tree_contents(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        fn collect(
+            root: &Path,
+            directory: &Path,
+            files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>,
+        ) {
+            for entry in fs::read_dir(directory).expect("read tree") {
+                let path = entry.expect("read entry").path();
+                if path.is_dir() {
+                    collect(root, &path, files);
+                } else {
+                    files.insert(
+                        path.strip_prefix(root)
+                            .expect("relative path")
+                            .to_path_buf(),
+                        fs::read(path).expect("read file"),
+                    );
+                }
+            }
+        }
+
+        let mut files = std::collections::BTreeMap::new();
+        collect(root, root, &mut files);
+        files
     }
 
     #[test]
@@ -383,6 +408,7 @@ mod tests {
         let root = fixture_root("refusal");
         let installation = installation(&root);
         old_addon(&installation, "2.0.alpha4");
+        let original = tree_contents(&addon(&installation));
         let staged = staged(&root, "2.0.alpha5");
         let running = safety_state_from_process_names(["Wow.exe"]);
         assert!(matches!(
@@ -406,6 +432,7 @@ mod tests {
                 .as_deref(),
             Some("2.0.alpha4")
         );
+        assert_eq!(tree_contents(&addon(&installation)), original);
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
@@ -427,14 +454,13 @@ mod tests {
         let root = fixture_root("rollback");
         let installation = installation(&root);
         old_addon(&installation, "2.0.alpha4");
+        let original = tree_contents(&addon(&installation));
         let wtf = installation.join("WTF/Account/TEST/SavedVariables/RPEngine2.lua");
         fs::create_dir_all(wtf.parent().expect("wtf parent")).expect("create wtf");
         fs::write(&wtf, "unchanged bytes").expect("write wtf");
         let staged = staged(&root, "2.0.alpha5");
-        let result = replace_staged_addon_with(&installation, &staged, safe(), |_, _| {
-            Err(AddonTransactionError::Verification(
-                "forced failure".to_owned(),
-            ))
+        let result = replace_staged_addon_with(&installation, &staged, safe(), |path, _| {
+            verify_installation(path, "2.0.alpha4")
         });
         assert!(matches!(
             result,
@@ -448,10 +474,40 @@ mod tests {
             Some("2.0.alpha4")
         );
         assert!(addon(&installation).join("stale.lua").is_file());
+        assert_eq!(tree_contents(&addon(&installation)), original);
         assert_eq!(
             fs::read_to_string(&wtf).expect("read wtf"),
             "unchanged bytes"
         );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn activation_failure_restores_the_exact_old_addon() {
+        let root = fixture_root("activation-rollback");
+        let installation = installation(&root);
+        old_addon(&installation, "2.0.alpha4");
+        let original = tree_contents(&addon(&installation));
+        let staged = staged(&root, "2.0.alpha5");
+        let result = replace_staged_addon_with_copy(
+            &installation,
+            &staged,
+            safe(),
+            |_, _| Err(io::Error::other("forced activation failure")),
+            verify_installation,
+        );
+        assert!(matches!(
+            result,
+            Err(AddonTransactionError::ActivateNew { .. })
+        ));
+        assert_eq!(tree_contents(&addon(&installation)), original);
+        assert!(fs::read_dir(installation.join(ADDON_PARENT))
+            .expect("read addon parent")
+            .all(|entry| !entry
+                .expect("read addon entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".RPEngine2.backup-")));
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
@@ -470,6 +526,27 @@ mod tests {
             Err(AddonTransactionError::Verification(_))
         ));
         assert!(!addon(&installation).exists());
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn rollback_failure_is_terminal_and_reported() {
+        let root = fixture_root("rollback-failure");
+        let destination = root.join("RPEngine2");
+        fs::create_dir_all(&destination).expect("create partial destination");
+        fs::write(destination.join("partial.lua"), "partial").expect("write partial addon");
+        let missing_backup = root.join("missing-backup");
+        let result = rollback::<()>(
+            &destination,
+            &missing_backup,
+            true,
+            AddonTransactionError::Verification("forced version mismatch".to_owned()),
+        );
+        assert!(matches!(
+            result,
+            Err(AddonTransactionError::Rollback { .. })
+        ));
+        assert!(!destination.exists());
         fs::remove_dir_all(root).expect("remove fixture");
     }
 }
