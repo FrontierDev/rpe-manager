@@ -1,5 +1,6 @@
 import type {
   InstallationAvailability,
+  ManagerConfiguration,
   WowProduct,
 } from "./configuration";
 
@@ -21,3 +22,12 @@ export interface WowDiscoveryCommandError {
   code: "configuration" | "invalid_installation_path";
   message: string;
 }
+
+export interface WowInstallationProductChoice {
+  product: WowProduct;
+  path: string;
+}
+
+export type WowInstallationSelectionResult =
+  | { status: "configured"; configuration: ManagerConfiguration }
+  | { status: "multiple_products"; products: WowInstallationProductChoice[] };

@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ManagerConfiguration } from "../models/configuration";
 import type {
   WowDiscoveryCommandError,
   WowInstallationCandidate,
+  WowInstallationSelectionResult,
 } from "../models/discovery";
 
 export async function discoverWowInstallations(): Promise<
@@ -13,8 +13,8 @@ export async function discoverWowInstallations(): Promise<
 
 export async function selectWowInstallation(
   path: string,
-): Promise<ManagerConfiguration> {
-  return invoke<ManagerConfiguration>("select_wow_installation", { path });
+): Promise<WowInstallationSelectionResult> {
+  return invoke<WowInstallationSelectionResult>("select_wow_installation", { path });
 }
 
 export function isWowDiscoveryCommandError(
@@ -26,4 +26,10 @@ export function isWowDiscoveryCommandError(
     "code" in error &&
     "message" in error
   );
+}
+
+export function discoveryErrorMessage(error: unknown): string {
+  if (isWowDiscoveryCommandError(error)) return error.message;
+  if (error instanceof Error) return error.message;
+  return "The selected folder could not be configured.";
 }

@@ -56,6 +56,8 @@ pub struct DiscoveryInputs {
     pub configured_installations: Vec<WowInstallation>,
     pub common_installation_roots: Vec<PathBuf>,
     pub battle_net_product_databases: Vec<PathBuf>,
+    pub battle_net_configuration_files: Vec<PathBuf>,
+    pub registry_installation_roots: Vec<PathBuf>,
 }
 
 impl DiscoveryInputs {
@@ -64,6 +66,8 @@ impl DiscoveryInputs {
             configured_installations,
             common_installation_roots: common_installation_roots(),
             battle_net_product_databases: battle_net_product_databases(),
+            battle_net_configuration_files: battle_net_configuration_files(),
+            registry_installation_roots: registry_installation_roots(),
         }
     }
 }
@@ -117,6 +121,20 @@ pub fn discover(inputs: &DiscoveryInputs) -> Vec<WowInstallationCandidate> {
         }
     }
 
+    for configuration_path in &inputs.battle_net_configuration_files {
+        for root in battle_net_configuration_roots(configuration_path) {
+            collect_root_and_product_children(
+                &mut candidates,
+                &root,
+                WowDiscoverySource::BattleNet,
+            );
+        }
+    }
+
+    for root in &inputs.registry_installation_roots {
+        collect_root_and_product_children(&mut candidates, root, WowDiscoverySource::BattleNet);
+    }
+
     candidates.into_values().collect()
 }
 
@@ -155,6 +173,62 @@ pub fn validate_installation_path(
         product: product_for_path(path),
         path: path.to_path_buf(),
     })
+}
+
+/// Resolves the directory selected in the native picker without guessing which
+/// product a user intended. A direct product directory is accepted. A Battle.net
+/// root is accepted only when it contains exactly one valid supported product.
+pub fn resolve_installation_selection(
+    path: &Path,
+) -> Result<InstallationSelection, WowValidationError> {
+    match validate_installation_path(path) {
+        Ok(installation) => return Ok(InstallationSelection::Exact(installation)),
+        Err(error) if product_for_path(path).is_some() => return Err(error),
+        Err(_) => {}
+    }
+
+    let metadata = fs::metadata(path).map_err(|source| WowValidationError::InspectPath {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if !metadata.is_dir() {
+        return Err(WowValidationError::NotDirectory(path.to_path_buf()));
+    }
+
+    let mut valid_products = Vec::new();
+    let mut invalid_products = Vec::new();
+    for (directory_name, product) in PRODUCT_DIRECTORIES {
+        let product_path = path.join(directory_name);
+        let Ok(product_metadata) = fs::metadata(&product_path) else {
+            continue;
+        };
+        if !product_metadata.is_dir() {
+            continue;
+        }
+
+        match validate_installation_path(&product_path) {
+            Ok(installation) => valid_products.push(installation),
+            Err(error) => invalid_products.push((product, error)),
+        }
+    }
+
+    match valid_products.len() {
+        1 => Ok(InstallationSelection::Exact(valid_products.remove(0))),
+        count if count > 1 => Ok(InstallationSelection::MultipleProducts(valid_products)),
+        _ if invalid_products.is_empty() => Err(WowValidationError::NoSupportedProductDirectories(
+            path.to_path_buf(),
+        )),
+        _ => Err(WowValidationError::InvalidProductDirectories {
+            root: path.to_path_buf(),
+            errors: invalid_products,
+        }),
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InstallationSelection {
+    Exact(ValidatedWowInstallation),
+    MultipleProducts(Vec<ValidatedWowInstallation>),
 }
 
 pub fn installation_id(path: &Path, product: Option<WowProduct>) -> String {
@@ -274,16 +348,32 @@ fn battle_net_product_databases() -> Vec<PathBuf> {
     paths
 }
 
+fn battle_net_configuration_files() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for variable in ["APPDATA", "LOCALAPPDATA"] {
+        if let Some(directory) = env::var_os(variable) {
+            paths.push(
+                PathBuf::from(directory)
+                    .join("Battle.net")
+                    .join("Battle.net.config"),
+            );
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
 fn battle_net_installation_roots(database_path: &Path) -> Vec<PathBuf> {
-    let Ok(contents) = fs::read_to_string(database_path) else {
-        return Vec::new();
-    };
-    let Ok(document) = serde_json::from_str::<Value>(&contents) else {
+    let Ok(contents) = fs::read(database_path) else {
         return Vec::new();
     };
 
     let mut roots = Vec::new();
-    collect_base_directories(&document, &mut roots);
+    if let Ok(document) = serde_json::from_slice::<Value>(&contents) {
+        collect_base_directories(&document, &mut roots);
+    }
+    roots.extend(extract_world_of_warcraft_paths(&contents));
     roots.sort();
     roots.dedup();
     roots
@@ -292,8 +382,10 @@ fn battle_net_installation_roots(database_path: &Path) -> Vec<PathBuf> {
 fn collect_base_directories(value: &Value, roots: &mut Vec<PathBuf>) {
     match value {
         Value::Object(object) => {
-            if let Some(Value::String(path)) = object.get("baseDir") {
-                roots.push(PathBuf::from(path));
+            for key in ["baseDir", "installPath", "InstallPath"] {
+                if let Some(Value::String(path)) = object.get(key) {
+                    roots.push(PathBuf::from(path));
+                }
             }
             for child in object.values() {
                 collect_base_directories(child, roots);
@@ -308,12 +400,164 @@ fn collect_base_directories(value: &Value, roots: &mut Vec<PathBuf>) {
     }
 }
 
+fn battle_net_configuration_roots(configuration_path: &Path) -> Vec<PathBuf> {
+    let Ok(contents) = fs::read_to_string(configuration_path) else {
+        return Vec::new();
+    };
+    let Ok(document) = serde_json::from_str::<Value>(&contents) else {
+        return Vec::new();
+    };
+
+    let mut default_install_paths = Vec::new();
+    collect_named_paths(&document, "DefaultInstallPath", &mut default_install_paths);
+    let mut roots = Vec::new();
+    for path in default_install_paths {
+        let path = PathBuf::from(path);
+        roots.push(path.join("World of Warcraft"));
+        roots.push(path);
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn collect_named_paths(value: &Value, expected_name: &str, paths: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for (name, child) in object {
+                if name.eq_ignore_ascii_case(expected_name) {
+                    if let Value::String(path) = child {
+                        paths.push(path.clone());
+                    }
+                }
+                collect_named_paths(child, expected_name, paths);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                collect_named_paths(child, expected_name, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Battle.net's Agent database is protobuf, not JSON. Its installation paths
+/// are UTF-8 string fields, so extract only printable strings that contain the
+/// game name and let structural validation decide whether they are usable.
+fn extract_world_of_warcraft_paths(bytes: &[u8]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut start = None;
+    for index in 0..=bytes.len() {
+        let printable = index < bytes.len() && matches!(bytes[index], b' '..=b'~');
+        match (start, printable) {
+            (None, true) => start = Some(index),
+            (Some(string_start), false) => {
+                let value = String::from_utf8_lossy(&bytes[string_start..index]);
+                if let Some(path) = path_from_battle_net_string(&value) {
+                    paths.push(path);
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    paths
+}
+
+fn path_from_battle_net_string(value: &str) -> Option<PathBuf> {
+    let lower = value.to_ascii_lowercase();
+    let marker = "world of warcraft";
+    let marker_index = lower.find(marker)?;
+    let prefix = &value[..marker_index];
+    let path_start = prefix
+        .char_indices()
+        .filter_map(|(index, _)| {
+            let remainder = &prefix[index..];
+            let bytes = remainder.as_bytes();
+            (bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'\\' | b'/'))
+            .then_some(index)
+        })
+        .next_back()?;
+    let path_end = value[marker_index..]
+        .find(['\"', '\'', '\0'])
+        .map(|offset| marker_index + offset)
+        .unwrap_or(value.len());
+    Some(PathBuf::from(
+        value[path_start..path_end].trim_end_matches([' ', '\\', '/']),
+    ))
+}
+
+#[cfg(windows)]
+fn registry_installation_roots() -> Vec<PathBuf> {
+    use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let mut roots = Vec::new();
+    for key_name in [
+        r"SOFTWARE\Blizzard Entertainment\World of Warcraft",
+        r"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft",
+    ] {
+        if let Ok(key) = hklm.open_subkey(key_name) {
+            if let Ok(path) = key.get_value::<String, _>("InstallPath") {
+                roots.push(PathBuf::from(path));
+            }
+        }
+    }
+    for base_key in [
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ] {
+        let Ok(parent) = hklm.open_subkey(base_key) else {
+            continue;
+        };
+        for subkey_name in parent.enum_keys().flatten() {
+            let Ok(key) = parent.open_subkey(subkey_name) else {
+                continue;
+            };
+            let display_name = key
+                .get_value::<String, _>("DisplayName")
+                .unwrap_or_default();
+            if display_name
+                .to_ascii_lowercase()
+                .contains("world of warcraft")
+            {
+                if let Ok(path) = key.get_value::<String, _>("InstallLocation") {
+                    roots.push(PathBuf::from(path));
+                }
+            }
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+#[cfg(not(windows))]
+fn registry_installation_roots() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 #[derive(Debug)]
 pub enum WowValidationError {
     DataPathIsNotDirectory(PathBuf),
-    InspectPath { path: PathBuf, source: io::Error },
-    MissingDataDirectory { path: PathBuf, source: io::Error },
+    InspectPath {
+        path: PathBuf,
+        source: io::Error,
+    },
+    InvalidProductDirectories {
+        root: PathBuf,
+        errors: Vec<(WowProduct, WowValidationError)>,
+    },
+    MissingDataDirectory {
+        path: PathBuf,
+        source: io::Error,
+    },
     MissingExecutable(PathBuf),
+    NoSupportedProductDirectories(PathBuf),
     NotDirectory(PathBuf),
 }
 
@@ -330,6 +574,17 @@ impl fmt::Display for WowValidationError {
             Self::InspectPath { path, source } => {
                 write!(formatter, "Could not inspect {}: {source}", path.display())
             }
+            Self::InvalidProductDirectories { root, errors } => {
+                write!(
+                    formatter,
+                    "Could not validate World of Warcraft product directories under {}",
+                    root.display()
+                )?;
+                for (product, error) in errors {
+                    write!(formatter, "; {product:?}: {error}")?;
+                }
+                Ok(())
+            }
             Self::MissingDataDirectory { path, source } => {
                 write!(
                     formatter,
@@ -340,6 +595,11 @@ impl fmt::Display for WowValidationError {
             Self::MissingExecutable(path) => write!(
                 formatter,
                 "Expected Wow.exe or Wow-64.exe in {}",
+                path.display()
+            ),
+            Self::NoSupportedProductDirectories(path) => write!(
+                formatter,
+                "No supported WoW product directories were found under {}",
                 path.display()
             ),
             Self::NotDirectory(path) => write!(formatter, "{} is not a directory", path.display()),
@@ -389,8 +649,12 @@ mod tests {
         wow_installation(&retail);
 
         let validated = validate_installation_path(&retail).expect("validate retail fixture");
+        let selection = resolve_installation_selection(&retail).expect("resolve retail fixture");
 
         assert_eq!(validated.product, Some(WowProduct::Retail));
+        assert!(
+            matches!(selection, InstallationSelection::Exact(resolved) if resolved == validated)
+        );
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 
@@ -426,6 +690,8 @@ mod tests {
             configured_installations: vec![configured(missing)],
             common_installation_roots: Vec::new(),
             battle_net_product_databases: Vec::new(),
+            battle_net_configuration_files: Vec::new(),
+            registry_installation_roots: Vec::new(),
         });
 
         assert_eq!(results.len(), 1);
@@ -458,6 +724,8 @@ mod tests {
             configured_installations: Vec::new(),
             common_installation_roots: vec![common_root],
             battle_net_product_databases: vec![product_database],
+            battle_net_configuration_files: Vec::new(),
+            registry_installation_roots: Vec::new(),
         });
 
         assert_eq!(results.len(), 2);
@@ -468,6 +736,124 @@ mod tests {
             candidate.product == Some(WowProduct::Ptr)
                 && candidate.source == WowDiscoverySource::BattleNet
         }));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn resolves_a_wow_root_with_one_product_without_rpengine() {
+        let directory = test_directory("single-product-root");
+        let root = directory.join("World of Warcraft");
+        let retail = root.join("_retail_");
+        wow_installation(&retail);
+
+        let selection = resolve_installation_selection(&root).expect("resolve root");
+
+        assert_eq!(
+            selection,
+            InstallationSelection::Exact(ValidatedWowInstallation {
+                product: Some(WowProduct::Retail),
+                path: retail,
+            })
+        );
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn returns_multiple_valid_products_without_choosing_one() {
+        let directory = test_directory("multiple-product-root");
+        let root = directory.join("World of Warcraft");
+        wow_installation(&root.join("_retail_"));
+        wow_installation(&root.join("_ptr_"));
+
+        let selection = resolve_installation_selection(&root).expect("resolve root");
+
+        assert!(matches!(
+            selection,
+            InstallationSelection::MultipleProducts(products)
+                if products.len() == 2
+                    && products.iter().any(|product| product.product == Some(WowProduct::Retail))
+                    && products.iter().any(|product| product.product == Some(WowProduct::Ptr))
+        ));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn direct_product_missing_executable_keeps_the_specific_error() {
+        let directory = test_directory("missing-executable");
+        let product = directory.join("_retail_");
+        fs::create_dir_all(product.join(WOW_DATA_DIRECTORY)).expect("create data directory");
+
+        let error =
+            resolve_installation_selection(&product).expect_err("reject missing executable");
+
+        assert!(error.to_string().contains("Expected Wow.exe or Wow-64.exe"));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn direct_product_missing_data_keeps_the_specific_error() {
+        let directory = test_directory("missing-data");
+        let product = directory.join("_retail_");
+        fs::create_dir_all(&product).expect("create product directory");
+        fs::write(product.join("Wow.exe"), "test executable").expect("create executable");
+
+        let error = resolve_installation_selection(&product).expect_err("reject missing data");
+
+        assert!(error.to_string().contains("Expected WoW data directory"));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn rejects_an_arbitrary_selected_root_with_an_explicit_reason() {
+        let directory = test_directory("arbitrary-root");
+
+        let error = resolve_installation_selection(&directory).expect_err("reject arbitrary root");
+
+        assert!(error
+            .to_string()
+            .contains("No supported WoW product directories were found"));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn reads_world_of_warcraft_paths_from_binary_product_database_strings() {
+        let directory = test_directory("binary-product-db");
+        let root = directory.join("World of Warcraft");
+        wow_installation(&root.join("_retail_"));
+        let database = directory.join("product.db");
+        fs::write(
+            &database,
+            [
+                b"metadata\x01".as_slice(),
+                root.to_string_lossy().as_bytes(),
+                b"\x02",
+            ]
+            .concat(),
+        )
+        .expect("write binary product database");
+
+        let roots = battle_net_installation_roots(&database);
+
+        assert_eq!(roots, vec![root]);
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn reads_default_install_path_from_battle_net_configuration() {
+        let directory = test_directory("battle-net-config");
+        let install_root = directory.join("Games");
+        let wow_root = install_root.join("World of Warcraft");
+        let configuration = directory.join("Battle.net.config");
+        fs::write(
+            &configuration,
+            serde_json::json!({ "Client": { "Install": { "DefaultInstallPath": install_root } } })
+                .to_string(),
+        )
+        .expect("write Battle.net configuration");
+
+        let roots = battle_net_configuration_roots(&configuration);
+
+        assert!(roots.contains(&wow_root));
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 }

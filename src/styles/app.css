@@ -429,6 +429,39 @@ h2 {
   font: 600 14px/1.35 "Segoe UI", sans-serif;
 }
 
+.product-choice-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.product-choice-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.product-choice-button {
+  align-items: center;
+  background: rgba(19, 29, 43, 0.65);
+  border: 1px solid rgba(91, 172, 238, 0.38);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  text-align: left;
+}
+
+.product-choice-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.product-choice-button span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
 .primary-button,
 .secondary-button,
 .link-button {

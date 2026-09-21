@@ -11,8 +11,9 @@ use crate::{
         ManagerConfiguration, WowInstallation,
     },
     discovery::wow::{
-        discover, installation_id, validate_installation_path, DiscoveryInputs,
-        ValidatedWowInstallation, WowInstallationCandidate, WowValidationError,
+        discover, installation_id, resolve_installation_selection, DiscoveryInputs,
+        InstallationSelection, ValidatedWowInstallation, WowInstallationCandidate,
+        WowValidationError,
     },
 };
 
@@ -37,9 +38,25 @@ pub fn discover_wow_installations(
 pub fn select_wow_installation(
     app: tauri::AppHandle,
     path: PathBuf,
-) -> Result<ManagerConfiguration, WowDiscoveryCommandError> {
-    let validated =
-        validate_installation_path(&path).map_err(WowDiscoveryCommandError::invalid_path)?;
+) -> Result<WowInstallationSelectionResult, WowDiscoveryCommandError> {
+    let selection =
+        resolve_installation_selection(&path).map_err(WowDiscoveryCommandError::invalid_path)?;
+    let validated = match selection {
+        InstallationSelection::Exact(validated) => validated,
+        InstallationSelection::MultipleProducts(products) => {
+            return Ok(WowInstallationSelectionResult::MultipleProducts {
+                products: products
+                    .into_iter()
+                    .map(|product| WowInstallationProductChoice {
+                        product: product
+                            .product
+                            .expect("supported product child has a product"),
+                        path: product.path,
+                    })
+                    .collect(),
+            });
+        }
+    };
     let canonical_path = fs::canonicalize(&validated.path).map_err(|source| {
         WowDiscoveryCommandError::invalid_path(WowValidationError::InspectPath {
             path: validated.path.clone(),
@@ -61,7 +78,26 @@ pub fn select_wow_installation(
 
     store
         .save(configuration)
+        .map(|configuration| WowInstallationSelectionResult::Configured { configuration })
         .map_err(|error| WowDiscoveryCommandError::configuration(error.into()))
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum WowInstallationSelectionResult {
+    Configured {
+        configuration: ManagerConfiguration,
+    },
+    MultipleProducts {
+        products: Vec<WowInstallationProductChoice>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WowInstallationProductChoice {
+    pub product: crate::configuration::WowProduct,
+    pub path: PathBuf,
 }
 
 fn select_validated_installation(
@@ -153,7 +189,12 @@ mod tests {
         fs::write(installation_path.join("Wow.exe"), "test executable")
             .expect("create executable fixture");
         let canonical_path = fs::canonicalize(&installation_path).expect("canonicalize fixture");
-        let validated = validate_installation_path(&canonical_path).expect("validate fixture");
+        let validated = match resolve_installation_selection(&canonical_path)
+            .expect("validate fixture")
+        {
+            InstallationSelection::Exact(validated) => validated,
+            InstallationSelection::MultipleProducts(_) => panic!("custom fixture should be exact"),
+        };
         let store = ConfigurationStore::new(directory.join("configuration.json"));
         let mut configuration = ManagerConfiguration::default();
 
@@ -164,6 +205,40 @@ mod tests {
 
         assert_eq!(loaded.configuration, saved);
         assert_eq!(loaded.configuration.installations[0].path, canonical_path);
+        assert_eq!(
+            loaded.configuration.selected_installation_id,
+            Some(loaded.configuration.installations[0].id.clone())
+        );
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn root_selection_persists_the_resolved_product_directory() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is before the Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("rpengine-manager-root-wow-{unique}"));
+        let root = directory.join("World of Warcraft");
+        let retail = root.join("_retail_");
+        fs::create_dir_all(retail.join("Data")).expect("create data directory");
+        fs::write(retail.join("Wow.exe"), "test executable").expect("create executable");
+        let validated = match resolve_installation_selection(&root).expect("resolve root") {
+            InstallationSelection::Exact(validated) => validated,
+            InstallationSelection::MultipleProducts(_) => {
+                panic!("one product should resolve exactly")
+            }
+        };
+        let canonical_retail = fs::canonicalize(&retail).expect("canonicalize retail");
+        let store = ConfigurationStore::new(directory.join("configuration.json"));
+        let mut configuration = ManagerConfiguration::default();
+
+        select_validated_installation(&mut configuration, canonical_retail.clone(), validated)
+            .expect("select installation");
+        store.save(configuration).expect("save configuration");
+        let loaded = store.load().expect("load configuration");
+
+        assert_eq!(loaded.configuration.installations[0].path, canonical_retail);
         assert_eq!(
             loaded.configuration.selected_installation_id,
             Some(loaded.configuration.installations[0].id.clone())

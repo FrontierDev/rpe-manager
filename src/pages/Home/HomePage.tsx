@@ -3,6 +3,7 @@ import { InstallationList } from "../../components/InstallationList";
 import { SafetyPanel } from "../../components/SafetyPanel";
 import type { ManagerConfiguration } from "../../models/configuration";
 import type { WowInstallationCandidate } from "../../models/discovery";
+import type { WowInstallationProductChoice } from "../../models/discovery";
 import type { WowModificationSafetyState } from "../../models/processes";
 import type { HomeState } from "../../app/manager-state";
 
@@ -10,6 +11,7 @@ interface HomePageProps {
   state: HomeState;
   configuration: ManagerConfiguration | null;
   candidates: WowInstallationCandidate[];
+  productChoices: WowInstallationProductChoice[] | null;
   safetyState: WowModificationSafetyState | null;
   safetyErrorMessage: string | null;
   errorMessage: string | null;
@@ -20,6 +22,7 @@ interface HomePageProps {
   onRecheckSafety: () => void;
   onChooseFolder: () => void;
   onSelectCandidate: (path: string) => void;
+  onSelectProduct: (path: string) => void;
 }
 
 export function HomePage(props: HomePageProps) {
@@ -48,6 +51,7 @@ export function HomePage(props: HomePageProps) {
         <div className="section-heading"><div><p className="section-overline">WORLD OF WARCRAFT</p><h2 id="discovery-heading">Installation discovery</h2></div><button className="secondary-button" type="button" onClick={props.onRefresh} disabled={props.isLoading || props.isSelecting}>Refresh</button></div>
         {props.errorMessage ? <p className="discovery-error">{props.errorMessage}</p> : null}
         <Panel className="discovery-panel"><div><p className="status-label">Automatic discovery</p><h3>{props.isLoading ? "Looking for World of Warcraft..." : availableCount > 0 ? `${availableCount} installation${availableCount === 1 ? "" : "s"} found` : "World of Warcraft was not found automatically"}</h3><p className="status-detail">Discovery reads candidate folders only. It does not change World of Warcraft files.</p></div><button className="primary-button" type="button" onClick={props.onChooseFolder} disabled={props.isSelecting}>{props.isSelecting ? "Checking folder..." : "Select WoW folder"}</button></Panel>
+        {props.productChoices !== null ? <Panel className="product-choice-panel" aria-labelledby="product-choice-heading"><div><p className="status-label">WORLD OF WARCRAFT INSTALLATION FOUND</p><h3 id="product-choice-heading">Choose a product</h3><p className="status-detail">The selected folder contains more than one valid World of Warcraft product.</p></div><div className="product-choice-list">{props.productChoices.map((choice) => <button className="product-choice-button" type="button" key={choice.path} onClick={() => props.onSelectProduct(choice.path)} disabled={props.isSelecting}><strong>{choice.product.toUpperCase()}</strong><span>{choice.path}</span></button>)}</div></Panel> : null}
         <InstallationList candidates={props.candidates} selectedInstallationId={props.configuration?.selectedInstallationId ?? null} isSelecting={props.isSelecting} onSelect={props.onSelectCandidate} />
       </section>
     </>
