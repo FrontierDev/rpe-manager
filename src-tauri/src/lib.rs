@@ -6,6 +6,7 @@ pub mod filesystem;
 pub mod packages;
 pub mod processes;
 pub mod protocol;
+pub mod release;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
