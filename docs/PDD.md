@@ -2239,30 +2239,133 @@ Multiple accounts can be independently targeted.
 
 # 75. Phase 5 — RPEngine Installation Management
 
+RPEngine addon binaries are distributed through **GitHub Releases in `FrontierDev/rpe2`**.
+
+Esarus does not duplicate or independently host RPEngine release ZIPs. Its role is to provide the Manager-facing release metadata and channel policy that identifies which GitHub Release should be offered.
+
+The intended distribution flow is:
+
+~~~
+RPEngine source/tag
+    ↓
+GitHub Actions in FrontierDev/rpe2
+    ↓
+versioned GitHub Release
+    ↓
+clean RPEngine2 release ZIP asset
+    ↓
+esarus.net release metadata / channel selection
+    ↓
+RPEngine Manager
+    ↓
+verified staged installation/update
+~~~
+
+Datasets remain a separate distribution system and continue to be served through the Esarus catalogue/backend.
+
+## RPEngine release pipeline
+
+Modify `FrontierDev/rpe2` to implement:
+
+- a defined release/tagging convention;
+- GitHub Actions packaging for Windows-compatible WoW addon distribution;
+- creation of a clean `RPEngine2` ZIP containing only files required by the addon;
+- GitHub Release publication with the versioned ZIP as a release asset;
+- deterministic release asset naming;
+- release artifact hashing suitable for verification by the Manager/Esarus metadata;
+- validation that the packaged TOC version agrees with the release version;
+- release build failure if required addon files are missing or unexpected development files are included.
+
+GitHub Releases are the canonical source of RPEngine binaries.
+
+The Manager must not install directly from a source branch checkout or GitHub repository archive.
+
+## Esarus release metadata
+
+Modify `FrontierDev/esarus` to expose Manager-facing metadata for RPEngine releases.
+
+Esarus metadata should identify at least:
+
+- RPEngine version;
+- release/update channel;
+- GitHub Release identity;
+- GitHub Release asset URL;
+- expected release asset hash;
+- minimum supported Manager version where required;
+- compatibility metadata required for datasets or protocol versions.
+
+Esarus determines which release is currently offered for each supported channel, while the actual binary remains hosted by GitHub Releases.
+
+Changing the advertised release/channel must not require copying the addon binary into Esarus storage.
+
+## Manager implementation
+
 Implement:
 
-- RPEngine release metadata;
+- retrieval of RPEngine release/channel metadata from esarus.net;
+- comparison of the installed TOC version against the advertised version;
+- download of the exact GitHub Release asset identified by trusted Esarus metadata;
+- release hash verification before extraction or installation;
 - RPEngine installation;
 - RPEngine updating;
 - installation validation;
-- staged replacement;
-- backups;
-- compatibility-driven addon updates.
+- staged extraction and replacement;
+- backups of the existing addon installation before replacement;
+- rollback/preservation of the existing installation if staging or validation fails;
+- compatibility-driven addon updates when a dataset requires a newer RPEngine version.
+
+The Manager must continue to use its existing WoW-installation validation and WoW-running safety checks.
+
+## Update channels
+
+The release metadata model must support explicit channels, for example:
+
+~~~
+stable
+beta
+alpha
+~~~
+
+The exact channel names may evolve, but channel selection must be explicit and persisted by the Manager.
+
+A user on one channel must not silently receive releases from another channel.
+
+## Release integrity
+
+Before modifying `Interface/AddOns/RPEngine2`, the Manager must verify that:
+
+- the downloaded file matches the expected hash;
+- the archive has the expected RPEngine2 package structure;
+- `RPEngine2.toc` exists;
+- the packaged addon version matches the advertised release;
+- extraction completed successfully in a staging location.
+
+A failed download, hash check, archive validation or extraction must leave the existing addon installation unchanged.
 
 ## Acceptance Criteria
 
 ~~~
-Manager can install RPEngine into a valid WoW installation.
+A tagged RPEngine release can produce a clean, versioned RPEngine2 ZIP through GitHub Actions.
 
-Manager detects the resulting version.
+The ZIP is attached to a GitHub Release and GitHub Releases are the canonical binary source.
 
-Manager can update an existing installation.
+Esarus can advertise the current RPEngine release for a configured channel without hosting a duplicate binary.
 
-A failed extraction does not destroy the previous installation.
+Manager can install RPEngine into a valid WoW installation from the advertised GitHub Release asset.
 
-An incompatible dataset can request the required RPE update.
+Manager verifies the downloaded release hash before modifying the addon installation.
+
+Manager detects the resulting installed version from RPEngine2.toc.
+
+Manager can update an existing installation to a later advertised release.
+
+A failed download, hash verification, extraction or staged validation does not destroy the previous installation.
+
+A dataset compatibility requirement can request the required RPEngine update.
 
 WoW running prevents installation changes.
+
+Datasets continue to be downloaded from Esarus rather than GitHub Releases.
 ~~~
 
 ---
