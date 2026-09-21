@@ -1,5 +1,7 @@
 import { Panel } from "../../../core/ui/Panel";
 import type { SelectedWowInstallationDiscovery } from "../../models/local-discovery";
+import type { RpeUpdateState } from "../../models/rpengine-update";
+import type { WowModificationSafetyState } from "../../models/processes";
 import type {
   AccountProtocolState,
   SelectedProtocolState,
@@ -7,6 +9,11 @@ import type {
 
 interface RPEnginePageProps {
   discovery: SelectedWowInstallationDiscovery | null;
+  updateState: RpeUpdateState | null;
+  safetyState: WowModificationSafetyState | null;
+  isOperating: boolean;
+  operationError: string | null;
+  onOperate: () => void;
   protocolState: SelectedProtocolState | null;
   protocolErrorMessage: string | null;
   onRefreshProtocol: () => void;
@@ -14,6 +21,11 @@ interface RPEnginePageProps {
 
 export function RPEnginePage({
   discovery,
+  updateState,
+  safetyState,
+  isOperating,
+  operationError,
+  onOperate,
   protocolState,
   protocolErrorMessage,
   onRefreshProtocol,
@@ -25,6 +37,7 @@ export function RPEnginePage({
   const { rpengine, accounts, installation } = discovery;
   return (
     <section className="page-section">
+      <AddonManagement state={updateState} safety={safetyState} operating={isOperating} error={operationError} onOperate={onOperate} />
       <div className="section-heading">
         <div><h2>Protocol state</h2></div>
       </div>
@@ -40,6 +53,19 @@ export function RPEnginePage({
       <ProtocolStatusSurface state={protocolState} error={protocolErrorMessage} onRefresh={onRefreshProtocol} />
     </section>
   );
+}
+
+function AddonManagement({ state, safety, operating, error, onOperate }: { state: RpeUpdateState | null; safety: WowModificationSafetyState | null; operating: boolean; error: string | null; onOperate: () => void }) {
+  const action = state?.status === "not_installed" ? "Install RPEngine" : state?.status === "damaged" ? "Repair RPEngine" : "Update RPEngine";
+  const actionable = state?.status === "not_installed" || state?.status === "damaged" || state?.status === "update_available";
+  return <Panel className="detail-panel"><p className="status-label">RPE ADDON</p><h2>{state?.local.version ? `Installed ${state.local.version}` : "RPEngine"}</h2>
+    {state?.latestVersion ? <p className="status-detail">Latest release: {state.latestVersion}</p> : null}
+    <p className="status-detail">{state?.status === "current" ? "Up to date" : state?.status === "update_available" ? "Update required" : state?.status === "check_failed" ? "Update checking failed; local installation state is retained." : state?.local.detail ?? state?.status.replaceAll("_", " ") ?? "Loading status"}</p>
+    {state?.status === "check_failed" ? <button className="secondary-button" type="button" onClick={() => window.location.reload()}>Retry update check</button> : null}
+    {actionable ? <button className="primary-button" type="button" onClick={onOperate} disabled={operating || safety?.canModifyWowFiles !== true}>{operating ? "Working…" : action}</button> : null}
+    {safety?.canModifyWowFiles === false ? <p className="discovery-error">Close World of Warcraft before modifying RPEngine.</p> : null}
+    {error ? <p className="discovery-error">{error}</p> : null}
+  </Panel>;
 }
 
 function ProtocolStatusSurface({ state, error, onRefresh }: {

@@ -5,10 +5,17 @@ import { getDatasetRows, type DatasetRow } from "../../models/datasets";
 import type { SelectedWowInstallationDiscovery } from "../../models/local-discovery";
 import type { SelectedProtocolState } from "../../models/protocol-state";
 import type { WowInstallationProductChoice } from "../../models/discovery";
+import type { RpeUpdateState } from "../../models/rpengine-update";
+import type { WowModificationSafetyState } from "../../models/processes";
 
 interface ManagerPageProps {
   configuration: ManagerConfiguration | null;
   discovery: SelectedWowInstallationDiscovery | null;
+  rpeUpdateState: RpeUpdateState | null;
+  rpeOperation: boolean;
+  rpeOperationError: string | null;
+  safetyState: WowModificationSafetyState | null;
+  onRpeOperation: () => void;
   protocolState: SelectedProtocolState | null;
   isLoading: boolean;
   isSelecting: boolean;
@@ -43,6 +50,7 @@ export function ManagerPage(props: ManagerPageProps) {
     <h1>Manager</h1>
     {props.errorMessage ? <p className="discovery-error">{props.errorMessage}</p> : null}
     <Panel className="manager-selectors">
+      {props.rpeOperation ? <div className="rpe-download-progress" role="status"><strong>Downloading RPEngine {props.rpeUpdateState?.latestVersion ?? "release"}</strong><p>Download and installation are in progress.</p></div> : <>
       <label className="selector-row">World of Warcraft installation:
         <select value={selectedInstallation?.path ?? ""} onChange={(event) => props.onSelectInstallation(event.target.value)} disabled={props.isLoading || props.isSelecting}>
           <option value="">Select an installation…</option>
@@ -58,8 +66,10 @@ export function ManagerPage(props: ManagerPageProps) {
           </div>
         </details>
       </label>
-      <p className="rpengine-version">RPE: {props.discovery === null ? "Not detected" : props.discovery.rpengine.version ?? props.discovery.rpengine.status.replaceAll("_", " ")}</p>
+      <div className="rpengine-version"><span>RPE: {props.rpeUpdateState?.local.version ?? props.discovery?.rpengine.version ?? "Not detected"}</span>{props.rpeUpdateState?.status === "current" ? <span>Up to date</span> : null}{props.rpeUpdateState?.status === "update_available" ? <><span>Update required</span><button className="primary-button" type="button" onClick={props.onRpeOperation} disabled={props.safetyState?.canModifyWowFiles !== true}>Update RPEngine</button></> : null}{props.rpeUpdateState?.status === "check_failed" ? <span className="discovery-error">Update check failed</span> : null}</div>
+      </>}
     </Panel>
+    {props.rpeOperationError ? <p className="discovery-error">{props.rpeOperationError}</p> : null}
     {props.productChoices ? <Panel className="product-choice-panel"><strong>Choose a World of Warcraft product</strong><div className="product-choice-list">{props.productChoices.map((choice, index) => <button className={index === 0 ? "primary-button" : "secondary-button"} key={choice.path} type="button" onClick={() => props.onSelectProduct(choice.path)}>{choice.product.toUpperCase()}{index === 0 ? " (default)" : ""} — {choice.path}</button>)}</div></Panel> : null}
     <section className="dataset-section" aria-labelledby="datasets-heading">
       <div className="section-heading"><h2 id="datasets-heading">Datasets</h2><div className="import-actions"><button className="secondary-button" type="button" onClick={props.onRefresh}>Refresh</button><button className="secondary-button" type="button" onClick={() => setShowDatasetImport((visible) => !visible)}>Import Dataset</button><button className="secondary-button" type="button" onClick={() => setShowRulesetImport((visible) => !visible)}>Import Ruleset</button></div></div>

@@ -1,3 +1,4 @@
+pub mod addon_transaction;
 pub mod commands;
 pub mod configuration;
 pub mod diagnostics;
@@ -6,6 +7,7 @@ pub mod filesystem;
 pub mod packages;
 pub mod processes;
 pub mod protocol;
+pub mod release;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,6 +27,8 @@ pub fn run() {
             commands::processes::get_wow_modification_safety_state,
             commands::protocol_state::get_selected_protocol_state,
             commands::protocol_state::reconcile_selected_protocol_request,
+            commands::release::install_latest_rpengine,
+            commands::release::get_rpengine_update_state,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run RPEngine Manager");

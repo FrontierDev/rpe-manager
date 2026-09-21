@@ -8,3 +8,4 @@ pub mod local_discovery;
 pub mod operations;
 pub mod processes;
 pub mod protocol_state;
+pub mod release;

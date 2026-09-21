@@ -109,7 +109,7 @@ fn damaged(detail: String) -> RPEngineInstallation {
     }
 }
 
-fn parse_version(contents: &str) -> Option<String> {
+pub(crate) fn parse_version(contents: &str) -> Option<String> {
     for line in contents.lines() {
         let Some(metadata) = line.trim().strip_prefix("##") else {
             continue;

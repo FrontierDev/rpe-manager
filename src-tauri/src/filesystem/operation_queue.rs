@@ -732,7 +732,10 @@ mod tests {
     #[test]
     fn queues_a_ruleset_without_writing_the_authored_ruleset_database() {
         let original = "RPEngineRulesetDB = { preserve = true }\n";
-        let fixture = fixture("ruleset", &[("ACCOUNT_A", original), ("ACCOUNT_B", original)]);
+        let fixture = fixture(
+            "ruleset",
+            &[("ACCOUNT_A", original), ("ACCOUNT_B", original)],
+        );
 
         let report = queue_install_ruleset_for_selected_accounts(
             &fixture.configuration,
@@ -742,7 +745,10 @@ mod tests {
         )
         .expect("queue ruleset");
 
-        assert!(report.accounts.iter().all(|account| account.status == AccountQueueStatus::Queued));
+        assert!(report
+            .accounts
+            .iter()
+            .all(|account| account.status == AccountQueueStatus::Queued));
         for account_id in ["ACCOUNT_A", "ACCOUNT_B"] {
             let source = fs::read_to_string(fixture.source_path(account_id))
                 .expect("read updated SavedVariables");
@@ -761,11 +767,21 @@ mod tests {
             &fixture.configuration,
             &fixture.backup_store,
             safe_state,
-            QueueInstallRulesetRequest { request_id: "ruleset-empty".to_owned(), payload: String::new() },
+            QueueInstallRulesetRequest {
+                request_id: "ruleset-empty".to_owned(),
+                payload: String::new(),
+            },
         );
 
-        assert!(matches!(report, Err(QueueOperationError::InvalidOperation(_))));
-        assert!(fixture.backup_store.list_backups().expect("list backups").is_empty());
+        assert!(matches!(
+            report,
+            Err(QueueOperationError::InvalidOperation(_))
+        ));
+        assert!(fixture
+            .backup_store
+            .list_backups()
+            .expect("list backups")
+            .is_empty());
         fs::remove_dir_all(fixture.directory).expect("remove fixture");
     }
 

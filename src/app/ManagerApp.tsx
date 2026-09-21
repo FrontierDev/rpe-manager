@@ -5,11 +5,13 @@ import { loadManagerConfiguration, saveManagerConfiguration } from "../api/confi
 import { discoveryErrorMessage, discoverWowInstallations, isWowDiscoveryCommandError, selectWowInstallation } from "../api/discovery";
 import { discoverSelectedWowInstallation, isLocalDiscoveryCommandError } from "../api/local-discovery";
 import { getWowModificationSafetyState } from "../api/processes";
+import { getRpeUpdateState, installLatestRpe } from "../api/rpengine-update";
 import { getSelectedProtocolState, isProtocolStateCommandError } from "../api/protocol-state";
 import type { ManagerConfiguration } from "../models/configuration";
 import type { WowInstallationCandidate, WowInstallationProductChoice } from "../models/discovery";
 import type { SelectedWowInstallationDiscovery } from "../models/local-discovery";
 import type { WowModificationSafetyState } from "../models/processes";
+import type { RpeUpdateState } from "../models/rpengine-update";
 import type { SelectedProtocolState } from "../models/protocol-state";
 import { selectAccounts } from "../state/configuration";
 import { ManagerPage as ManagerPageContent } from "../pages/Manager/ManagerPage";
@@ -28,6 +30,9 @@ export function ManagerApp() {
   const [localDiscovery, setLocalDiscovery] = useState<SelectedWowInstallationDiscovery | null>(null);
   const [safetyState, setSafetyState] = useState<WowModificationSafetyState | null>(null);
   const [protocolState, setProtocolState] = useState<SelectedProtocolState | null>(null);
+  const [rpeUpdateState, setRpeUpdateState] = useState<RpeUpdateState | null>(null);
+  const [rpeOperation, setRpeOperation] = useState(false);
+  const [rpeOperationError, setRpeOperationError] = useState<string | null>(null);
   const [protocolErrorMessage, setProtocolErrorMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [safetyErrorMessage, setSafetyErrorMessage] = useState<string | null>(null);
@@ -64,8 +69,9 @@ export function ManagerApp() {
       setConfiguration(loaded.configuration); setCandidates(discovered);
       const selected = loaded.configuration.installations.find((installation) => installation.id === loaded.configuration.selectedInstallationId);
       if (selected !== undefined && selected.availability === "available") {
-        const [discovery] = await Promise.all([discoverSelectedWowInstallation(), refreshProtocolState()]);
+        const [discovery, , update] = await Promise.all([discoverSelectedWowInstallation(), refreshProtocolState(), getRpeUpdateState()]);
         setLocalDiscovery(discovery);
+        setRpeUpdateState(update);
         // Configurations created before account defaults existed have no map
         // entry. Persist the initial selection once; an empty entry remains an
         // explicit choice and is never replaced on later refreshes.
@@ -84,6 +90,14 @@ export function ManagerApp() {
       setErrorMessage(isWowDiscoveryCommandError(error) || isLocalDiscoveryCommandError(error) ? error.message : "World of Warcraft discovery could not be completed.");
     } finally { setIsLoading(false); }
   }, [refreshProtocolState]);
+
+  const runRpeOperation = useCallback(async () => {
+    if (rpeOperation || safetyState?.canModifyWowFiles !== true) return;
+    setRpeOperation(true); setRpeOperationError(null);
+    try { await installLatestRpe(); await recheckWowSafety(); await refresh(); }
+    catch (error) { setRpeOperationError(error instanceof Error ? error.message : "RPEngine operation failed."); }
+    finally { setRpeOperation(false); }
+  }, [refresh, recheckWowSafety, rpeOperation, safetyState]);
 
   useEffect(() => { void refresh(); void recheckWowSafety(); }, [recheckWowSafety, refresh]);
 
@@ -172,7 +186,7 @@ export function ManagerApp() {
   }, [configuration, refreshProtocolState, safetyState]);
 
   const content = page === "manager"
-    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} />
-    : <><SettingsPage configuration={configuration} discovery={localDiscovery} candidates={candidates} onToggleAccount={toggleAccount} /><section className="page-section"><SafetyPanel state={safetyState} errorMessage={safetyErrorMessage} isChecking={isSafetyChecking} onRecheck={() => void recheckWowSafety()} /></section><RPEnginePage discovery={localDiscovery} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /></>;
+    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} rpeUpdateState={rpeUpdateState} rpeOperation={rpeOperation} rpeOperationError={rpeOperationError} safetyState={safetyState} onRpeOperation={() => void runRpeOperation()} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} />
+    : <><SettingsPage configuration={configuration} discovery={localDiscovery} candidates={candidates} onToggleAccount={toggleAccount} /><section className="page-section"><SafetyPanel state={safetyState} errorMessage={safetyErrorMessage} isChecking={isSafetyChecking} onRecheck={() => void recheckWowSafety()} /></section><RPEnginePage discovery={localDiscovery} updateState={rpeUpdateState} safetyState={safetyState} isOperating={rpeOperation} operationError={rpeOperationError} onOperate={() => void runRpeOperation()} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /></>;
   return <AppFrame page={page} onNavigate={setPage}>{content}</AppFrame>;
 }

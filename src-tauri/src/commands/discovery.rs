@@ -12,9 +12,11 @@ use crate::{
     },
     discovery::{
         accounts::discover_accounts,
-        wow::{default_installation_candidate, discover, installation_id, resolve_installation_selection, DiscoveryInputs,
-            InstallationSelection, ValidatedWowInstallation, WowInstallationCandidate,
-            WowValidationError},
+        wow::{
+            default_installation_candidate, discover, installation_id,
+            resolve_installation_selection, DiscoveryInputs, InstallationSelection,
+            ValidatedWowInstallation, WowInstallationCandidate, WowValidationError,
+        },
     },
 };
 
@@ -22,8 +24,7 @@ use crate::{
 pub fn discover_wow_installations(
     app: tauri::AppHandle,
 ) -> Result<Vec<WowInstallationCandidate>, WowDiscoveryCommandError> {
-    let store = configuration_store(&app)
-        .map_err(WowDiscoveryCommandError::configuration)?;
+    let store = configuration_store(&app).map_err(WowDiscoveryCommandError::configuration)?;
     let mut configuration = store
         .load()
         .map_err(|error| WowDiscoveryCommandError::configuration(error.into()))?
@@ -104,7 +105,10 @@ fn select_discovered_accounts_if_unset(
         .selected_installation_id
         .clone()
         .ok_or_else(|| "No installation was selected.".to_owned())?;
-    if configuration.selected_account_ids.contains_key(&installation_id) {
+    if configuration
+        .selected_account_ids
+        .contains_key(&installation_id)
+    {
         return Ok(());
     }
     let installation = configuration
@@ -115,7 +119,10 @@ fn select_discovered_accounts_if_unset(
     let accounts = discover_accounts(&installation.path)
         .map_err(|error| format!("Could not discover accounts: {error}"))?;
     configuration
-        .set_selected_accounts(&installation_id, accounts.into_iter().map(|account| account.id).collect())
+        .set_selected_accounts(
+            &installation_id,
+            accounts.into_iter().map(|account| account.id).collect(),
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -123,11 +130,14 @@ fn ensure_default_installation(
     configuration: &mut ManagerConfiguration,
     candidates: &[WowInstallationCandidate],
 ) -> Result<(), WowDiscoveryCommandError> {
-    let has_valid_selection = configuration.selected_installation_id.as_deref().is_some_and(|id| {
-        candidates.iter().any(|candidate| {
-            candidate.id == id && candidate.availability == InstallationAvailability::Available
-        })
-    });
+    let has_valid_selection = configuration
+        .selected_installation_id
+        .as_deref()
+        .is_some_and(|id| {
+            candidates.iter().any(|candidate| {
+                candidate.id == id && candidate.availability == InstallationAvailability::Available
+            })
+        });
     if has_valid_selection {
         return Ok(());
     }
@@ -284,7 +294,10 @@ mod tests {
         ensure_default_installation(&mut configuration, &[retail, ptr])
             .expect("preserve valid explicit selection");
 
-        assert_eq!(configuration.selected_installation_id.as_deref(), Some("ptr"));
+        assert_eq!(
+            configuration.selected_installation_id.as_deref(),
+            Some("ptr")
+        );
     }
 
     #[test]
@@ -295,10 +308,12 @@ mod tests {
             ..ManagerConfiguration::default()
         };
 
-        ensure_default_installation(&mut configuration, &[retail])
-            .expect("select retail fallback");
+        ensure_default_installation(&mut configuration, &[retail]).expect("select retail fallback");
 
-        assert_eq!(configuration.selected_installation_id.as_deref(), Some("retail"));
+        assert_eq!(
+            configuration.selected_installation_id.as_deref(),
+            Some("retail")
+        );
     }
 
     #[test]
@@ -343,7 +358,10 @@ mod tests {
             Some(loaded.configuration.installations[0].id.clone())
         );
         assert_eq!(
-            loaded.configuration.selected_account_ids.get(&loaded.configuration.installations[0].id),
+            loaded
+                .configuration
+                .selected_account_ids
+                .get(&loaded.configuration.installations[0].id),
             Some(&vec!["ACCOUNT_A".to_owned(), "ACCOUNT_B".to_owned()])
         );
         fs::remove_dir_all(directory).expect("remove test directory");
@@ -370,7 +388,10 @@ mod tests {
         let mut configuration = ManagerConfiguration::default();
         select_validated_installation(&mut configuration, canonical_path, validated)
             .expect("select installation");
-        let installation_id = configuration.selected_installation_id.clone().expect("selected id");
+        let installation_id = configuration
+            .selected_installation_id
+            .clone()
+            .expect("selected id");
         configuration
             .set_selected_accounts(&installation_id, vec!["ACCOUNT_A".to_owned()])
             .expect("save explicit selection");

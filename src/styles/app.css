@@ -833,7 +833,9 @@ h2 { font-size: 15px; }
 .ruleset-import textarea { min-height: 110px; resize: vertical; border: 1px solid var(--border); border-radius: 4px; background: #101216; color: #e5e5e1; font: 12px/1.4 Consolas, monospace; padding: 8px; }
 .ruleset-import > div { display: flex; align-items: center; gap: 10px; }
 .import-actions { display: flex; gap: 6px; }
-.rpengine-version { grid-column: 1 / -1; margin: -2px 0 0; color: var(--text-muted); font-size: 11px; }
+.rpengine-version { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: -2px 0 0; color: var(--text-muted); font-size: 11px; }
+.rpengine-version .primary-button { margin-left: auto; }
+.rpe-download-progress { grid-column: 1 / -1; min-height: 70px; display: grid; align-content: center; }
 .detail-panel, .empty-panel { padding: 14px; }
 .settings-row { padding: 9px 0; }
 .safety-panel { padding: 12px 14px; }

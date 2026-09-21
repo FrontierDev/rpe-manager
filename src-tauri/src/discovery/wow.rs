@@ -698,16 +698,16 @@ mod tests {
         let custom = candidate(None, "custom");
 
         assert_eq!(
-            default_installation_candidate(&[retail.clone()]).map(|item| item.id.as_str()),
+            default_installation_candidate(std::slice::from_ref(&retail))
+                .map(|item| item.id.as_str()),
             Some("retail")
         );
         assert_eq!(
-            default_installation_candidate(&[ptr.clone()]).map(|item| item.id.as_str()),
+            default_installation_candidate(std::slice::from_ref(&ptr)).map(|item| item.id.as_str()),
             Some("ptr")
         );
         assert_eq!(
-            default_installation_candidate(&[retail.clone(), ptr])
-                .map(|item| item.id.as_str()),
+            default_installation_candidate(&[retail.clone(), ptr]).map(|item| item.id.as_str()),
             Some("retail")
         );
         assert_eq!(
@@ -728,8 +728,12 @@ mod tests {
         let candidates = discovery_from_configured(retail);
 
         assert_eq!(candidates.len(), 3);
-        assert!(candidates.iter().any(|item| item.product == Some(WowProduct::Ptr)));
-        assert!(candidates.iter().any(|item| item.product == Some(WowProduct::Beta)));
+        assert!(candidates
+            .iter()
+            .any(|item| item.product == Some(WowProduct::Ptr)));
+        assert!(candidates
+            .iter()
+            .any(|item| item.product == Some(WowProduct::Beta)));
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 
@@ -745,8 +749,12 @@ mod tests {
         let candidates = discovery_from_configured(ptr);
 
         assert_eq!(candidates.len(), 2);
-        assert!(candidates.iter().any(|item| item.product == Some(WowProduct::Retail)));
-        assert!(!candidates.iter().any(|item| item.product == Some(WowProduct::Beta)));
+        assert!(candidates
+            .iter()
+            .any(|item| item.product == Some(WowProduct::Retail)));
+        assert!(!candidates
+            .iter()
+            .any(|item| item.product == Some(WowProduct::Beta)));
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 

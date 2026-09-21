@@ -598,7 +598,10 @@ mod tests {
         let loaded = store.load().expect("load configuration");
 
         assert_eq!(saved.selected_account_ids.get("retail"), Some(&Vec::new()));
-        assert_eq!(loaded.configuration.selected_account_ids.get("retail"), Some(&Vec::new()));
+        assert_eq!(
+            loaded.configuration.selected_account_ids.get("retail"),
+            Some(&Vec::new())
+        );
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 
