@@ -92,12 +92,46 @@ impl fmt::Display for AddonTransactionError {
 }
 impl std::error::Error for AddonTransactionError {}
 
+impl AddonTransactionError {
+    /// A permission denial is actionable: the normal process can ask the
+    /// narrowly-scoped Windows helper to repeat this transaction elevated.
+    pub fn is_permission_denied(&self) -> bool {
+        match self {
+            Self::TargetNotWritable { source, .. }
+            | Self::CopyStaged { source, .. }
+            | Self::DisplaceExisting { source, .. }
+            | Self::ActivateNew { source, .. } => source.kind() == io::ErrorKind::PermissionDenied,
+            Self::Rollback { primary, .. } => primary.is_permission_denied(),
+            _ => false,
+        }
+    }
+}
+
 pub fn replace_staged_addon(
     installation: &Path,
     staged: &StagedRelease,
     safety: WowModificationSafetyState,
 ) -> Result<AddonTransactionReport, AddonTransactionError> {
     replace_staged_addon_with(installation, staged, safety, verify_installation)
+}
+
+/// Entry point used only by the elevated helper.  Revalidate both paths here;
+/// the helper never accepts a generic filesystem operation.
+pub fn replace_staged_addon_privileged(
+    installation: &Path,
+    staged: &StagedRelease,
+) -> Result<AddonTransactionReport, AddonTransactionError> {
+    let canonical_addon = installation.join(ADDON_PARENT).join(ADDON_NAME);
+    if canonical_addon.file_name().and_then(|name| name.to_str()) != Some(ADDON_NAME) {
+        return Err(AddonTransactionError::InvalidInstallation(
+            installation.to_path_buf(),
+        ));
+    }
+    replace_staged_addon(
+        installation,
+        staged,
+        crate::processes::wow::inspect_wow_processes(),
+    )
 }
 
 fn replace_staged_addon_with<F>(
@@ -116,14 +150,7 @@ where
     let parent = prepare_addon_parent(installation)?;
     let destination = parent.join(ADDON_NAME);
     let nonce = transaction_nonce();
-    let incoming = parent.join(format!(".{ADDON_NAME}.incoming-{nonce}"));
     let backup = parent.join(format!(".{ADDON_NAME}.backup-{nonce}"));
-    copy_directory(&staged.directory.join(ADDON_NAME), &incoming).map_err(|source| {
-        AddonTransactionError::CopyStaged {
-            path: incoming.clone(),
-            source,
-        }
-    })?;
 
     let had_existing =
         destination
@@ -140,14 +167,17 @@ where
             }
         })?;
     }
-    if let Err(primary) = fs::rename(&incoming, &destination)
+    // The validated staging tree is Manager-owned and deliberately outside
+    // the game installation. Copy only after the old directory has moved;
+    // this avoids persistent .incoming directories under Interface/AddOns.
+    if let Err(primary) = copy_directory(&staged.directory.join(ADDON_NAME), &destination)
         .map_err(|source| AddonTransactionError::ActivateNew {
             path: destination.clone(),
             source,
         })
         .and_then(|_| verify(installation, &staged.version))
     {
-        return rollback(&destination, &incoming, &backup, had_existing, primary);
+        return rollback(&destination, &backup, had_existing, primary);
     }
     if had_existing {
         let _ = fs::remove_dir_all(&backup);
@@ -172,7 +202,6 @@ fn verify_installation(installation: &Path, expected: &str) -> Result<(), AddonT
 
 fn rollback<T>(
     destination: &Path,
-    incoming: &Path,
     backup: &Path,
     had_existing: bool,
     primary: AddonTransactionError,
@@ -180,9 +209,6 @@ fn rollback<T>(
     let cleanup = || -> Result<(), io::Error> {
         if destination.try_exists()? {
             fs::remove_dir_all(destination)?;
-        }
-        if incoming.try_exists()? {
-            fs::remove_dir_all(incoming)?;
         }
         if had_existing {
             fs::rename(backup, destination)?;

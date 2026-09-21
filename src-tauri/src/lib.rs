@@ -3,6 +3,7 @@ pub mod commands;
 pub mod configuration;
 pub mod diagnostics;
 pub mod discovery;
+pub mod elevation;
 pub mod filesystem;
 pub mod packages;
 pub mod processes;
@@ -11,6 +12,9 @@ pub mod release;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if elevation::run_helper_if_requested() {
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

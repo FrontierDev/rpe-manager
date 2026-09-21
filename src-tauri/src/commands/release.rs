@@ -1,6 +1,6 @@
 //! Tauri entry point for the single RPEngine install/update/repair transaction.
 
-use std::{fmt, fs};
+use std::{fmt, fs, path::Path};
 
 use serde::Serialize;
 use tauri::Manager;
@@ -100,13 +100,38 @@ pub fn install_latest_rpengine(
         .app_cache_dir()
         .map_err(|error| ReleaseCommandError::storage(error.to_string()))?
         .join("release-staging");
+    cleanup_stale_staging(&cache);
     let release = fetch_latest_release().map_err(ReleaseCommandError::release_message)?;
     let staged =
         download_and_stage_release(&release, &cache).map_err(ReleaseCommandError::release)?;
-    let result = replace_staged_addon(&installation.path, &staged, inspect_wow_processes())
-        .map_err(ReleaseCommandError::transaction);
+    let result = match replace_staged_addon(&installation.path, &staged, inspect_wow_processes()) {
+        Ok(report) => Ok(report),
+        Err(error) if error.is_permission_denied() => {
+            crate::elevation::replace_elevated(&installation.path, &staged)
+                .map_err(ReleaseCommandError::elevation)
+        }
+        Err(error) => Err(ReleaseCommandError::transaction(error)),
+    };
     let _ = fs::remove_dir_all(&staged.directory);
     result
+}
+
+/// Crash leftovers are safe to remove only when they are direct children of
+/// the dedicated Manager cache directory and carry our operation prefix.
+fn cleanup_stale_staging(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let owned = entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("rpengine-stage-");
+        if owned && path.is_dir() {
+            let _ = fs::remove_dir_all(path);
+        }
+    }
 }
 
 fn selected_installation(app: &tauri::AppHandle) -> Result<WowInstallation, ReleaseCommandError> {
@@ -144,6 +169,7 @@ pub enum ReleaseCommandErrorCode {
     Release,
     Storage,
     Transaction,
+    Elevation,
 }
 
 #[cfg(test)]
@@ -222,6 +248,12 @@ impl ReleaseCommandError {
         Self {
             code: ReleaseCommandErrorCode::Transaction,
             message: error.to_string(),
+        }
+    }
+    fn elevation(message: String) -> Self {
+        Self {
+            code: ReleaseCommandErrorCode::Elevation,
+            message,
         }
     }
 }

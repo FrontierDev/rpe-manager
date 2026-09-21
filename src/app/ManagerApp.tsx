@@ -5,7 +5,7 @@ import { loadManagerConfiguration, saveManagerConfiguration } from "../api/confi
 import { discoveryErrorMessage, discoverWowInstallations, isWowDiscoveryCommandError, selectWowInstallation } from "../api/discovery";
 import { discoverSelectedWowInstallation, isLocalDiscoveryCommandError } from "../api/local-discovery";
 import { getWowModificationSafetyState } from "../api/processes";
-import { getRpeUpdateState, installLatestRpe } from "../api/rpengine-update";
+import { getRpeUpdateState, installLatestRpe, rpeOperationErrorMessage } from "../api/rpengine-update";
 import { getSelectedProtocolState, isProtocolStateCommandError } from "../api/protocol-state";
 import type { ManagerConfiguration } from "../models/configuration";
 import type { WowInstallationCandidate, WowInstallationProductChoice } from "../models/discovery";
@@ -95,7 +95,7 @@ export function ManagerApp() {
     if (rpeOperation || safetyState?.canModifyWowFiles !== true) return;
     setRpeOperation(true); setRpeOperationError(null);
     try { await installLatestRpe(); await recheckWowSafety(); await refresh(); }
-    catch (error) { setRpeOperationError(error instanceof Error ? error.message : "RPEngine operation failed."); }
+    catch (error) { setRpeOperationError(rpeOperationErrorMessage(error)); }
     finally { setRpeOperation(false); }
   }, [refresh, recheckWowSafety, rpeOperation, safetyState]);
 

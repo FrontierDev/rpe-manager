@@ -362,24 +362,30 @@ pub fn stage_release_bytes(
         source,
     })?;
     let zip_path = directory.join(format!("RPEngine2-{}.zip", release.tag_name));
-    fs::write(&zip_path, zip).map_err(|source| ReleaseError::WriteStorage {
-        path: zip_path,
-        source,
-    })?;
-    let checksum_path = directory.join(format!("RPEngine2-{}.zip.sha256", release.tag_name));
-    fs::write(&checksum_path, checksum.as_bytes()).map_err(|source| {
-        ReleaseError::WriteStorage {
-            path: checksum_path,
+    let staged = (|| -> Result<StagedRelease, ReleaseError> {
+        fs::write(&zip_path, zip).map_err(|source| ReleaseError::WriteStorage {
+            path: zip_path,
             source,
-        }
-    })?;
-    extract_canonical_archive(zip, &directory)?;
-    let staged = StagedRelease {
-        version: release.tag_name.clone(),
-        directory,
-    };
-    validate_staged_release(&staged)?;
-    Ok(staged)
+        })?;
+        let checksum_path = directory.join(format!("RPEngine2-{}.zip.sha256", release.tag_name));
+        fs::write(&checksum_path, checksum.as_bytes()).map_err(|source| {
+            ReleaseError::WriteStorage {
+                path: checksum_path,
+                source,
+            }
+        })?;
+        extract_canonical_archive(zip, &directory)?;
+        let staged = StagedRelease {
+            version: release.tag_name.clone(),
+            directory: directory.clone(),
+        };
+        validate_staged_release(&staged)?;
+        Ok(staged)
+    })();
+    if staged.is_err() {
+        let _ = fs::remove_dir_all(&directory);
+    }
+    staged
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
@@ -654,5 +660,17 @@ mod tests {
             stage(&[("RPEngine2/RPEngine2.toc", "## Version: 2.0.alpha4")]),
             Err(ReleaseError::TocVersionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn removes_operation_storage_after_staging_failure() {
+        let root = temporary_root("cleanup");
+        let zip = archive(&[("RPEngine2/other.lua", "x")]);
+        assert!(stage_release_bytes(&release(), &zip, &checksum(&zip), None, &root).is_err());
+        assert!(fs::read_dir(&root)
+            .expect("read staging root")
+            .next()
+            .is_none());
+        fs::remove_dir_all(root).expect("remove staging root");
     }
 }
