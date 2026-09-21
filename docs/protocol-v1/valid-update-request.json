@@ -1,0 +1,16 @@
+{
+  "protocolVersion": 1,
+  "pendingOperations": [
+    {
+      "requestId": "550e8400-e29b-41d4-a716-446655440010",
+      "operation": "install_dataset",
+      "catalogueId": "esarus-core",
+      "datasetId": "f82db71a",
+      "revision": 15,
+      "hash": "bb999d71587cd377fdfcbfaa137f8ff7e2fef7b6d2df792e277f3b88bcd1628e",
+      "payload": "RPE_DATASET_V1\nfixture payload revision 15\n"
+    }
+  ],
+  "installedPackages": {},
+  "operationResults": {}
+}

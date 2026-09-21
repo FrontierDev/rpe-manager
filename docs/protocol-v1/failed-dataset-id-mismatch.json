@@ -1,0 +1,20 @@
+{
+  "protocolVersion": 1,
+  "pendingOperations": [],
+  "installedPackages": {},
+  "operationResults": {
+    "550e8400-e29b-41d4-a716-446655440020": {
+      "requestId": "550e8400-e29b-41d4-a716-446655440020",
+      "operation": "install_dataset",
+      "status": "failed",
+      "catalogueId": "esarus-core",
+      "datasetId": "f82db71a",
+      "revision": 14,
+      "hash": "2aee76c57aa954b6ca769bb1c1ff839c0805cea4aa4ffb3ebe153fe48e3c71de",
+      "error": {
+        "code": "dataset_id_mismatch",
+        "detail": "The declared dataset ID does not match the canonical payload dataset ID."
+      }
+    }
+  }
+}

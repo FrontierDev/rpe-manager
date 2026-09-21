@@ -4,11 +4,7 @@
 //! data files. The configuration file is resolved by the Tauri backend, so the
 //! frontend cannot select an arbitrary filesystem location for it.
 
-use std::{
-    collections::BTreeMap,
-    fmt, fs, io,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, fmt, fs, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -264,6 +260,7 @@ impl From<ConfigurationError> for ConfigurationCommandError {
     fn from(error: ConfigurationError) -> Self {
         let code = match &error {
             ConfigurationError::Read { .. } => ConfigurationCommandErrorCode::Read,
+            ConfigurationError::Validation(_) => ConfigurationCommandErrorCode::Validation,
             ConfigurationError::Write { .. } => ConfigurationCommandErrorCode::Write,
             ConfigurationError::PathInspection { .. } => {
                 ConfigurationCommandErrorCode::PathInspection
@@ -283,6 +280,7 @@ pub enum ConfigurationCommandErrorCode {
     ConfigurationPath,
     PathInspection,
     Read,
+    Validation,
     Write,
 }
 

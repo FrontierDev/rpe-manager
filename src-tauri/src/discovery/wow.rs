@@ -135,7 +135,7 @@ pub fn validate_installation_path(
     let data_path = path.join(WOW_DATA_DIRECTORY);
     let data_metadata =
         fs::metadata(&data_path).map_err(|source| WowValidationError::MissingDataDirectory {
-            path: data_path,
+            path: data_path.clone(),
             source,
         })?;
     if !data_metadata.is_dir() {

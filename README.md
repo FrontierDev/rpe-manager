@@ -1,5 +1,7 @@
 # RPEngine Manager
 
+Phase 2 persisted-contract validation is documented in [docs/PHASE2_VALIDATION.md](docs/PHASE2_VALIDATION.md).
+
 RPEngine Manager is a Windows desktop application built with Tauri, React,
 TypeScript, and Vite. It discovers and stores selected World of Warcraft
 installations without modifying their files. Dataset management and catalogue

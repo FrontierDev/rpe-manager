@@ -1,0 +1,24 @@
+{
+  "protocolVersion": 1,
+  "pendingOperations": [],
+  "installedPackages": {
+    "esarus-core": {
+      "packageType": "dataset",
+      "datasetId": "f82db71a",
+      "revision": 15,
+      "hash": "bb999d71587cd377fdfcbfaa137f8ff7e2fef7b6d2df792e277f3b88bcd1628e",
+      "installedAt": 1789940100
+    }
+  },
+  "operationResults": {
+    "550e8400-e29b-41d4-a716-446655440010": {
+      "requestId": "550e8400-e29b-41d4-a716-446655440010",
+      "operation": "install_dataset",
+      "status": "succeeded",
+      "catalogueId": "esarus-core",
+      "datasetId": "f82db71a",
+      "revision": 15,
+      "hash": "bb999d71587cd377fdfcbfaa137f8ff7e2fef7b6d2df792e277f3b88bcd1628e"
+    }
+  }
+}

@@ -10,6 +10,7 @@ use crate::{
     },
     configuration::{ConfigurationCommandError, WowInstallation},
     discovery::wow::{discover, DiscoveryInputs, WowInstallationCandidate},
+    filesystem::protocol_state::{read_selected_protocol_state, SelectedProtocolState},
     processes::wow::{inspect_wow_processes, WowModificationSafetyState},
 };
 
@@ -22,6 +23,8 @@ pub struct PhaseOneDiagnostics {
     pub selected_installation: Option<WowInstallation>,
     pub selected_installation_discovery: Option<SelectedWowInstallationDiscovery>,
     pub wow_safety: WowModificationSafetyState,
+    pub protocol_state: Option<SelectedProtocolState>,
+    pub protocol_state_error: Option<String>,
 }
 
 #[tauri::command]
@@ -60,6 +63,13 @@ pub fn get_phase_one_diagnostics(
         _ => None,
     };
 
+    let wow_safety = inspect_wow_processes();
+    let (protocol_state, protocol_state_error) =
+        match read_selected_protocol_state(&configuration, &wow_safety) {
+            Ok(state) => (Some(state), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+
     Ok(PhaseOneDiagnostics {
         manager_version: env!("CARGO_PKG_VERSION").to_owned(),
         operating_system: System::long_os_version()
@@ -67,7 +77,9 @@ pub fn get_phase_one_diagnostics(
         detected_installations,
         selected_installation,
         selected_installation_discovery,
-        wow_safety: inspect_wow_processes(),
+        wow_safety,
+        protocol_state,
+        protocol_state_error,
     })
 }
 

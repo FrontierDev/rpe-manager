@@ -27,7 +27,7 @@ export function AppFrame({ children, page, onNavigate }: AppFrameProps) {
             </button>
           ))}
         </nav>
-        <div className="topbar-meta"><span className="environment-dot" aria-hidden="true" /><span>PHASE 1</span></div>
+        <div className="topbar-meta"><span className="environment-dot" aria-hidden="true" /><span>PHASE 2</span></div>
       </header>
       <main className="main-content">{children}</main>
     </div>

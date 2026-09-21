@@ -5,10 +5,12 @@ import { loadManagerConfiguration, saveManagerConfiguration } from "../api/confi
 import { discoverWowInstallations, isWowDiscoveryCommandError, selectWowInstallation } from "../api/discovery";
 import { discoverSelectedWowInstallation, isLocalDiscoveryCommandError } from "../api/local-discovery";
 import { getWowModificationSafetyState } from "../api/processes";
+import { getSelectedProtocolState, isProtocolStateCommandError } from "../api/protocol-state";
 import type { ManagerConfiguration } from "../models/configuration";
 import type { WowInstallationCandidate } from "../models/discovery";
 import type { SelectedWowInstallationDiscovery } from "../models/local-discovery";
 import type { WowModificationSafetyState } from "../models/processes";
+import type { SelectedProtocolState } from "../models/protocol-state";
 import { selectAccounts } from "../state/configuration";
 import { getHomeState } from "./manager-state";
 import { HomePage } from "../pages/Home/HomePage";
@@ -21,6 +23,8 @@ export function ManagerApp() {
   const [candidates, setCandidates] = useState<WowInstallationCandidate[]>([]);
   const [localDiscovery, setLocalDiscovery] = useState<SelectedWowInstallationDiscovery | null>(null);
   const [safetyState, setSafetyState] = useState<WowModificationSafetyState | null>(null);
+  const [protocolState, setProtocolState] = useState<SelectedProtocolState | null>(null);
+  const [protocolErrorMessage, setProtocolErrorMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [safetyErrorMessage, setSafetyErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,17 +39,29 @@ export function ManagerApp() {
     finally { setIsSafetyChecking(false); }
   }, []);
 
+  const refreshProtocolState = useCallback(async () => {
+    setProtocolErrorMessage(null);
+    try { setProtocolState(await getSelectedProtocolState()); }
+    catch (error) {
+      setProtocolState(null);
+      setProtocolErrorMessage(isProtocolStateCommandError(error) ? error.message : "Persisted RPEngine protocol state could not be read.");
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
-    setIsLoading(true); setErrorMessage(null); setLocalDiscovery(null);
+    setIsLoading(true); setErrorMessage(null); setLocalDiscovery(null); setProtocolState(null);
     try {
       const [loaded, discovered] = await Promise.all([loadManagerConfiguration(), discoverWowInstallations()]);
       setConfiguration(loaded.configuration); setCandidates(discovered);
       const selected = loaded.configuration.installations.find((installation) => installation.id === loaded.configuration.selectedInstallationId);
-      if (selected !== undefined && selected.availability === "available") setLocalDiscovery(await discoverSelectedWowInstallation());
+      if (selected !== undefined && selected.availability === "available") {
+        const [discovery] = await Promise.all([discoverSelectedWowInstallation(), refreshProtocolState()]);
+        setLocalDiscovery(discovery);
+      }
     } catch (error) {
       setErrorMessage(isWowDiscoveryCommandError(error) || isLocalDiscoveryCommandError(error) ? error.message : "World of Warcraft discovery could not be completed.");
     } finally { setIsLoading(false); }
-  }, []);
+  }, [refreshProtocolState]);
 
   useEffect(() => { void refresh(); void recheckWowSafety(); }, [recheckWowSafety, refresh]);
 
@@ -67,10 +83,12 @@ export function ManagerApp() {
     const selectedIds = configuration.selectedAccountIds[localDiscovery.installation.id] ?? [];
     const nextIds = selected ? [...selectedIds, accountId] : selectedIds.filter((id) => id !== accountId);
     const next = selectAccounts({ configuration, recoveryMessage: null }, localDiscovery.installation.id, nextIds).configuration;
-    void saveManagerConfiguration(next).then(setConfiguration).catch(() => setErrorMessage("Account selection could not be saved."));
-  }, [configuration, localDiscovery]);
+    void saveManagerConfiguration(next)
+      .then((saved) => { setConfiguration(saved); return refreshProtocolState(); })
+      .catch(() => setErrorMessage("Account selection could not be saved."));
+  }, [configuration, localDiscovery, refreshProtocolState]);
 
   const home = <HomePage state={getHomeState(configuration, candidates, errorMessage)} configuration={configuration} candidates={candidates} safetyState={safetyState} safetyErrorMessage={safetyErrorMessage} errorMessage={errorMessage} isLoading={isLoading} isSelecting={isSelecting} isSafetyChecking={isSafetyChecking} onRefresh={() => void refresh()} onRecheckSafety={() => void recheckWowSafety()} onChooseFolder={() => void chooseInstallation()} onSelectCandidate={(path) => void chooseInstallation(path)} />;
-  const content = page === "home" ? home : page === "rpengine" ? <RPEnginePage discovery={localDiscovery} /> : <SettingsPage configuration={configuration} discovery={localDiscovery} onToggleAccount={toggleAccount} />;
+  const content = page === "home" ? home : page === "rpengine" ? <RPEnginePage discovery={localDiscovery} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /> : <SettingsPage configuration={configuration} discovery={localDiscovery} onToggleAccount={toggleAccount} />;
   return <AppFrame page={page} onNavigate={setPage}>{content}<footer className="app-footer"><span>RPEngine Manager</span><span className="footer-separator">/</span><span>Windows desktop</span><span className="footer-build">LOCAL BUILD</span></footer></AppFrame>;
 }

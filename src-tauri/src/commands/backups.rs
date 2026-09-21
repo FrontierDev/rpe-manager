@@ -7,7 +7,7 @@ use crate::filesystem::backup::{BackupError, BackupMetadata, BackupStore};
 
 const BACKUP_DIRECTORY_NAME: &str = "backups";
 
-fn backup_store(app: &tauri::AppHandle) -> Result<BackupStore, BackupCommandError> {
+pub(crate) fn backup_store(app: &tauri::AppHandle) -> Result<BackupStore, BackupCommandError> {
     let app_data_directory = app
         .path()
         .app_data_dir()
