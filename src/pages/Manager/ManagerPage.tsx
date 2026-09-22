@@ -73,14 +73,41 @@ export function ManagerPage(props: ManagerPageProps) {
           </div>
         </details>
       </label>
-      <div className="rpengine-version"><span>RPE: {props.rpeUpdateState?.local.version ?? props.discovery?.rpengine.version ?? "Not detected"}</span>{props.rpeUpdateState?.status === "current" ? <span>Up to date</span> : null}{props.rpeUpdateState?.status === "update_available" ? <><span>Update required</span><button className="primary-button" type="button" onClick={props.onRpeOperation} disabled={props.safetyState?.canModifyWowFiles !== true}>Update RPEngine</button></> : null}{props.rpeUpdateState?.status === "check_failed" ? <span className="discovery-error">Update check failed</span> : null}</div>
-      {props.rpeUpdateState?.status === "update_available" && props.safetyState?.canModifyWowFiles !== true ? <p className="discovery-error">{props.safetyState?.isWowRunning ? `Close World of Warcraft (${props.safetyState.matchingProcessNames.join(", ")}) before updating RPEngine.` : "Checking whether World of Warcraft is running before enabling the update."}</p> : null}
+      <RpeAddonAction updateState={props.rpeUpdateState} detectedVersion={props.discovery?.rpengine.version ?? null} safetyState={props.safetyState} onOperate={props.onRpeOperation} />
       </>}
     </Panel>
     {props.rpeOperationError ? <p className="discovery-error">{props.rpeOperationError}</p> : null}
     {props.productChoices ? <Panel className="product-choice-panel"><strong>Choose a World of Warcraft product</strong><div className="product-choice-list">{props.productChoices.map((choice, index) => <button className={index === 0 ? "primary-button" : "secondary-button"} key={choice.path} type="button" onClick={() => props.onSelectProduct(choice.path)}>{choice.product.toUpperCase()}{index === 0 ? " (default)" : ""} — {choice.path}</button>)}</div></Panel> : null}
     <CataloguePanel packages={props.cataloguePackages} localRows={rows} loading={props.catalogueLoading} error={props.catalogueError} protocolState={props.protocolState} selectedAccounts={selectedAccounts} controls={<><button className="secondary-button" type="button" onClick={props.onRefresh}>Refresh</button><button className="secondary-button" type="button" onClick={() => setShowDatasetImport((visible) => !visible)}>Import Dataset</button><button className="secondary-button" type="button" onClick={() => setShowRulesetImport((visible) => !visible)}>Import Ruleset</button></>} imports={<>{showDatasetImport ? <Panel className="ruleset-import"><label>Dataset export<textarea value={datasetText} onChange={(event) => setDatasetText(event.target.value)} placeholder="Paste the full RPE_DATASET_V1 export" /></label><div><button className="primary-button" type="button" disabled={isQueueingDataset} onClick={() => { setIsQueueingDataset(true); setDatasetMessage(null); void props.onQueueDataset(datasetText).then((message) => { setDatasetMessage(message); if (message.startsWith("Queued")) setDatasetText(""); }).catch((error: unknown) => setDatasetMessage(error instanceof Error ? error.message : "Dataset could not be queued.")).finally(() => setIsQueueingDataset(false)); }}>{isQueueingDataset ? "Queueing…" : "Install"}</button>{datasetMessage ? <span className="status-detail">{datasetMessage}</span> : null}</div></Panel> : null}{showRulesetImport ? <Panel className="ruleset-import"><label>Ruleset export<textarea value={rulesetText} onChange={(event) => setRulesetText(event.target.value)} placeholder="Paste the RPE ruleset export" /></label><div><button className="primary-button" type="button" disabled={isQueueingRuleset} onClick={() => { setIsQueueingRuleset(true); setRulesetMessage(null); void props.onQueueRuleset(rulesetText).then(setRulesetMessage).catch((error: unknown) => setRulesetMessage(error instanceof Error ? error.message : "Ruleset could not be queued.")).finally(() => setIsQueueingRuleset(false)); }}>{isQueueingRuleset ? "Queueing…" : "Queue import"}</button>{rulesetMessage ? <span className="status-detail">{rulesetMessage}</span> : null}</div></Panel> : null}</>} onRefresh={props.onRefreshCatalogue} onInstall={props.onQueueCataloguePackage} onRemove={props.onQueueDatasetRemoval} />
   </section>;
+}
+
+function RpeAddonAction({ updateState, detectedVersion, safetyState, onOperate }: {
+  updateState: RpeUpdateState | null;
+  detectedVersion: string | null;
+  safetyState: WowModificationSafetyState | null;
+  onOperate: () => void;
+}) {
+  const status = updateState?.status;
+  const action = status === "not_installed"
+    ? "Install RPEngine"
+    : status === "damaged"
+      ? "Repair RPEngine"
+      : "Update RPEngine";
+  const canOperate = status === "not_installed" || status === "damaged" || status === "update_available";
+
+  return <>
+    <div className="rpengine-version">
+      <span>RPE: {updateState?.local.version ?? detectedVersion ?? "Not detected"}</span>
+      {status === "current" ? <span>Up to date</span> : null}
+      {status === "not_installed" ? <span>Not installed</span> : null}
+      {status === "damaged" ? <span>Installation needs repair</span> : null}
+      {status === "update_available" ? <span>Update required</span> : null}
+      {canOperate ? <button className="primary-button" type="button" onClick={onOperate} disabled={safetyState?.canModifyWowFiles !== true}>{action}</button> : null}
+      {status === "check_failed" ? <span className="discovery-error">Update check failed</span> : null}
+    </div>
+    {canOperate && safetyState?.canModifyWowFiles !== true ? <p className="discovery-error">{safetyState?.isWowRunning ? `Close World of Warcraft (${safetyState.matchingProcessNames.join(", ")}) before ${action.toLowerCase()}.` : "Checking whether World of Warcraft is running before enabling this action."}</p> : null}
+  </>;
 }
 
 function InstallationOption({ installation }: { installation: WowInstallation }) {
