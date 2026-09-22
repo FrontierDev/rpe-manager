@@ -2891,7 +2891,7 @@ dependencies = [
 
 [[package]]
 name = "rpengine-manager"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
