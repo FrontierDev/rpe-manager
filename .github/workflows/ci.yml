@@ -24,6 +24,8 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - run: npm run version:check
+      - run: npm run version:test
       - run: npm run check
       - run: npm run lint
       - run: npm test
@@ -62,4 +64,6 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-      - run: npm run tauri:build
+      # CI validates the unsigned installer build only. Signed updater
+      # artifacts are created exclusively by release.yml with required secrets.
+      - run: npm run tauri:build:ci

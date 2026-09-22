@@ -109,3 +109,34 @@ GitHub Actions runs the same validation on every push and pull request:
 Node dependencies are installed with `npm ci` from `package-lock.json`. Rust
 commands use `Cargo.lock` with Cargo's locked mode, so CI does not update the
 resolved dependency set.
+
+## Signed releases and updater
+
+Manager releases use Tauri's signed updater artifacts. The npm, Cargo, and
+Tauri configuration versions are one release contract; run `npm run
+version:check` to reject a mismatch. A release tag must be exactly
+`v<version>`, for example `v0.1.1` for version `0.1.1`.
+
+Generate the long-lived updater signing identity once on a secure maintainer
+machine. Do not create the key in this repository:
+
+```powershell
+npx tauri signer generate --password "<strong private password>" --write-keys "$env:USERPROFILE\.tauri\rpengine-manager.key"
+```
+
+Configure the public key printed by that command as the updater `pubkey` in
+`src-tauri/tauri.conf.json`. Configure these GitHub Actions secrets from the
+private key material; never commit either value:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: contents of `rpengine-manager.key`.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: password used to generate that key.
+
+The release workflow fails before building a release if either signing secret
+is absent. It publishes the signed Windows updater artifact and Tauri's
+`latest.json` to the GitHub Release. The Manager verifies update signatures;
+there is no unsigned fallback or custom executable replacement path.
+
+Regular CI disables updater-artifact generation only while validating that the
+Windows installer builds, because pull requests do not receive release
+signing secrets. It never uploads or publishes that installer. Only the
+tagged release workflow generates updater artifacts and it requires signing.
