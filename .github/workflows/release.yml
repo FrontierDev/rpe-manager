@@ -60,3 +60,17 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target x86_64-pc-windows-msvc -- --locked
+      - name: Publish stable NSIS installer alias
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installerDirectory = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $versionedInstaller = Join-Path $installerDirectory "RPEngine.Manager_${version}_x64-setup.exe"
+          $stableInstaller = Join-Path $installerDirectory "RPEngine.Manager_x64-setup.exe"
+          if (-not (Test-Path -LiteralPath $versionedInstaller -PathType Leaf)) { throw "Expected versioned NSIS installer was not created: $versionedInstaller" }
+          Copy-Item -LiteralPath $versionedInstaller -Destination $stableInstaller
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $versionedInstaller).Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $stableInstaller).Hash) { throw "Stable NSIS installer does not match the versioned installer." }
+          gh release upload $env:RELEASE_TAG $stableInstaller

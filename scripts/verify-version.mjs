@@ -7,8 +7,9 @@ export function verifyReleaseVersion(root = resolve(import.meta.dirname, ".."), 
   const read = (path) => readFileSync(resolve(root, path), "utf8");
   const packageVersion = JSON.parse(read("package.json")).version;
   const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(read("src-tauri/Cargo.toml"))?.[1];
+  const cargoLockVersion = /\[\[package\]\]\s*name\s*=\s*"rpengine-manager"\s*version\s*=\s*"([^"]+)"/m.exec(read("src-tauri/Cargo.lock"))?.[1];
   const tauriVersion = JSON.parse(read("src-tauri/tauri.conf.json")).version;
-  const versions = { "package.json": packageVersion, "src-tauri/Cargo.toml": cargoVersion, "src-tauri/tauri.conf.json": tauriVersion };
+  const versions = { "package.json": packageVersion, "src-tauri/Cargo.toml": cargoVersion, "src-tauri/Cargo.lock": cargoLockVersion, "src-tauri/tauri.conf.json": tauriVersion };
 
   if (!Object.values(versions).every((version) => version === packageVersion)) {
     throw new Error(`Manager release versions disagree: ${Object.entries(versions).map(([file, version]) => `${file}=${version ?? "missing"}`).join(", ")}`);

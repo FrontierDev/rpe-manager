@@ -112,8 +112,9 @@ resolved dependency set.
 
 ## Signed releases and updater
 
-Manager releases use Tauri's signed updater artifacts. The npm, Cargo, and
-Tauri configuration versions are one release contract; run `npm run
+Manager releases use Tauri's signed updater artifacts. The npm, Cargo, Cargo
+lockfile root package, and Tauri configuration versions are one release
+contract; run `npm run
 version:check` to reject a mismatch. A release tag must be exactly
 `v<version>`, for example `v0.1.1` for version `0.1.1`.
 
@@ -132,8 +133,11 @@ private key material; never commit either value:
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: password used to generate that key.
 
 The release workflow fails before building a release if either signing secret
-is absent. It publishes the signed Windows updater artifact and Tauri's
-`latest.json` to the GitHub Release. The Manager verifies update signatures;
+is absent. It publishes the signed versioned Windows updater artifact, its
+stable `RPEngine.Manager_x64-setup.exe` alias, and Tauri's `latest.json` to
+the GitHub Release. The alias is copied from and SHA-256 checked against the
+versioned installer; `latest.json` continues to reference the signed versioned
+artifact. The Manager verifies update signatures;
 there is no unsigned fallback or custom executable replacement path.
 
 Regular CI disables updater-artifact generation only while validating that the
