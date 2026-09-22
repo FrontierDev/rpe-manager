@@ -20,9 +20,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Activate pinned Rust toolchain
+        run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -48,7 +47,7 @@ jobs:
         run: |
           if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw "TAURI_SIGNING_PRIVATE_KEY is required for signed releases." }
           if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) { throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is required for signed releases." }
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -59,4 +58,4 @@ jobs:
           releaseBody: Signed RPEngine Manager release.
           releaseDraft: false
           prerelease: false
-          args: --target x86_64-pc-windows-msvc --locked
+          args: --target x86_64-pc-windows-msvc -- --locked
