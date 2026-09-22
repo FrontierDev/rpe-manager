@@ -18,6 +18,8 @@ use crate::protocol::{
 };
 
 const MANAGER_GLOBAL: &str = "RPEngineManagerDB";
+const DATASET_GLOBAL: &str = "RPEngineDatasetDB";
+const RULESET_GLOBAL: &str = "RPEngineRulesetDB";
 const MAX_LITERAL_NESTING: usize = 128;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -85,6 +87,48 @@ pub fn parse_manager_state(source: &str) -> Result<ManagerSavedVariables, SavedV
     match locate_manager_assignment(source)? {
         Some(assignment) => Ok(ManagerSavedVariables::Present(assignment.state)),
         None => Ok(ManagerSavedVariables::Absent),
+    }
+}
+
+/// Checks the literal authored RPE databases without evaluating Lua. This is
+/// used only to reconcile a manager manifest when RPE data is already gone.
+pub fn native_content_contains_id(
+    source: &str,
+    native_id: &str,
+) -> Result<bool, SavedVariablesError> {
+    let mut lexer = Lexer::new(source);
+    while let Some(token) = lexer.next_token()? {
+        let TokenKind::Identifier(name) = token.kind else {
+            continue;
+        };
+        if name != DATASET_GLOBAL && name != RULESET_GLOBAL {
+            continue;
+        }
+        if !matches!(
+            lexer
+                .peek_token()
+                .map(|token| token.map(|value| &value.kind))?,
+            Some(TokenKind::Equals)
+        ) {
+            continue;
+        }
+        lexer.next_token()?;
+        let (value, _) = DataParser::new(&mut lexer).parse_value(token.end)?;
+        if lua_value_contains_id(&value, native_id) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn lua_value_contains_id(value: &LuaValue, native_id: &str) -> bool {
+    match value {
+        LuaValue::String(value) => value.as_slice() == native_id.as_bytes(),
+        LuaValue::Table(table) => table.fields.iter().any(|(key, value)| {
+            matches!(key, LuaKey::String(key) if key == native_id)
+                || lua_value_contains_id(value, native_id)
+        }),
+        LuaValue::Nil | LuaValue::Boolean(_) | LuaValue::Number(_) => false,
     }
 }
 

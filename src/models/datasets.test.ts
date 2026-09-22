@@ -33,4 +33,37 @@ describe("dataset table rows", () => {
 
     expect(rows[0]).toMatchObject({ dataset: "example", status: "failed" });
   });
+
+  it("keeps an installed dataset visible as removal pending until RPE processes it", () => {
+    const rows = getDatasetRows([{
+      ...account,
+      pendingOperations: [{ requestId: "remove-1", operation: "remove_dataset", catalogueId: "manual.abc", datasetId: "example", revision: 1, hash: "a", hasPayload: false }],
+      operationResults: [],
+      installedPackages: [{ catalogueId: "manual.abc", packageType: "dataset", datasetId: "example", revision: 1, hash: "a", installedAt: 1 }],
+    }]);
+
+    expect(rows).toEqual([expect.objectContaining({ dataset: "example", status: "removal_pending" })]);
+  });
+
+  it("stops tracking a manifest entry when RPE confirms its dataset is already absent", () => {
+    const rows = getDatasetRows([{
+      ...account,
+      pendingOperations: [],
+      operationResults: [{ requestId: "remove-1", operation: "remove_dataset", status: "failed" as const, catalogueId: "manual.abc", datasetId: "example", revision: 1, hash: "a", error: { code: "remove_rejected", detail: "The installed dataset is already absent, so canonical removal cannot succeed." } }],
+      installedPackages: [{ catalogueId: "manual.abc", packageType: "dataset", datasetId: "example", revision: 1, hash: "a", installedAt: 1 }],
+    }]);
+
+    expect(rows).toEqual([]);
+  });
+
+  it("does not treat a historical successful install result as an installed manifest entry", () => {
+    const rows = getDatasetRows([{
+      ...account,
+      pendingOperations: [],
+      installedPackages: [],
+      operationResults: [{ requestId: "install-1", operation: "install_dataset", status: "succeeded" as const, catalogueId: "manual.abc", datasetId: "example", revision: 1, hash: "a" }],
+    }]);
+
+    expect(rows).toEqual([]);
+  });
 });

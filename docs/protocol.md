@@ -198,7 +198,7 @@ Implementations MUST NOT fall back to editing `RPEngineDatasetDB.datasets` if pr
 `install_ruleset` is a local manual import request. It uses the normal v1
 envelope fields with `catalogueId = "local"`, `datasetId = "ruleset-import"`,
 and `revision = 1`; `hash` is SHA-256 of the exact UTF-8 payload bytes. The
-required payload begins with `RPE_RULESET_V1\n`; the remaining bytes are opaque
+required payload begins with `RPE_RULESET_V2\n` or `RPE_RULESET_V2\r\n`; the remaining bytes are opaque
 to Manager.
 
 Manager validates only that outer marker and exact hash, then appends the

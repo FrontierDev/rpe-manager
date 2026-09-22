@@ -10,7 +10,7 @@ export interface QueueDatasetRequest {
 }
 
 export interface QueueDatasetReport {
-  accounts: Array<{ accountId: string; status: "queued" | "failed"; error?: { code: string; message: string } }>;
+  accounts: Array<{ accountId: string; status: "queued" | "reconciled" | "failed"; error?: { code: string; message: string } }>;
 }
 
 export function queueDataset(request: QueueDatasetRequest): Promise<QueueDatasetReport> {

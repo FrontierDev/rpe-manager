@@ -112,7 +112,7 @@ impl OperationEnvelope {
             }
             (OperationKind::InstallRuleset, _) => Err(ProtocolValidationError::InvalidField {
                 field: "payload",
-                message: "install_ruleset requires a non-empty RPE_RULESET_V1 payload".to_owned(),
+                message: "install_ruleset requires a non-empty RPE_RULESET_V2 payload".to_owned(),
             }),
         }
     }
@@ -392,9 +392,44 @@ pub fn validate_hash(value: &str) -> Result<(), ProtocolValidationError> {
 }
 
 pub fn valid_payload_header(payload: &str) -> bool {
-    payload.starts_with("RPE_DATASET_V1\n")
+    payload.starts_with("RPE_DATASET_V1\n") || payload.starts_with("RPE_DATASET_V1\r\n")
 }
 
 pub fn valid_ruleset_payload_header(payload: &str) -> bool {
-    payload.starts_with("RPE_RULESET_V1\n") && payload.len() > "RPE_RULESET_V1\n".len()
+    (payload.starts_with("RPE_RULESET_V2\n") && payload.len() > "RPE_RULESET_V2\n".len())
+        || (payload.starts_with("RPE_RULESET_V2\r\n") && payload.len() > "RPE_RULESET_V2\r\n".len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dataset_envelope_accepts_lf_and_crlf_but_not_near_matches() {
+        assert!(valid_payload_header("RPE_DATASET_V1\n{ dataset = {} }"));
+        assert!(valid_payload_header("RPE_DATASET_V1\r\n{ dataset = {} }"));
+        for invalid in [
+            "RPE_DATASET_V1{ dataset = {} }",
+            "RPE_DATASET_V2\n{ dataset = {} }",
+            "RPE_DATASET_V1X\n{ dataset = {} }",
+        ] {
+            assert!(!valid_payload_header(invalid), "{invalid} must be rejected");
+        }
+    }
+
+    #[test]
+    fn ruleset_envelope_accepts_current_v2_with_lf_and_crlf_only() {
+        assert!(valid_ruleset_payload_header(
+            "RPE_RULESET_V2\n{ rules = {} }"
+        ));
+        assert!(valid_ruleset_payload_header(
+            "RPE_RULESET_V2\r\n{ rules = {} }"
+        ));
+        assert!(!valid_ruleset_payload_header(
+            "RPE_RULESET_V1\n{ rules = {} }"
+        ));
+        assert!(!valid_ruleset_payload_header(
+            "RPE_RULESET_V2{ rules = {} }"
+        ));
+    }
 }

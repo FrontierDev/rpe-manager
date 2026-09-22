@@ -142,7 +142,8 @@ export function ManagerApp() {
   }, [configuration, localDiscovery, refreshProtocolState]);
 
   const queueImportedRuleset = useCallback(async (payload: string) => {
-    if (!payload.startsWith("RPE_RULESET_V1\n") || payload.length <= "RPE_RULESET_V1\n".length) {
+    const rulesetHeader = payload.startsWith("RPE_RULESET_V2\r\n") ? "RPE_RULESET_V2\r\n" : "RPE_RULESET_V2\n";
+    if (!payload.startsWith(rulesetHeader) || payload.length <= rulesetHeader.length) {
       throw new Error("Paste a complete RPE ruleset export.");
     }
     const report = await queueRuleset({ requestId: crypto.randomUUID(), payload });
@@ -194,7 +195,11 @@ export function ManagerApp() {
     const report = await queueDatasetRemovalRequest({ requestId: crypto.randomUUID(), catalogueId: row.catalogueId, datasetId: row.datasetId, revision: row.installedRevision, hash: row.hash });
     await refreshProtocolState();
     const failed = report.accounts.filter((account) => account.status === "failed");
-    return failed.length === 0 ? `Removal queued for ${report.accounts.length} account(s).` : `Failed: ${failed.map((account) => account.error?.message ?? "queue error").join("; ")}`;
+    if (failed.length) return `Failed: ${failed.map((account) => account.error?.message ?? "queue error").join("; ")}`;
+    const reconciled = report.accounts.filter((account) => account.status === "reconciled");
+    const queued = report.accounts.length - reconciled.length;
+    if (queued === 0) return `Dataset was already absent; stopped tracking it for ${reconciled.length} account(s).`;
+    return reconciled.length === 0 ? `Removal queued for ${queued} account(s).` : `Removal queued for ${queued}; stopped tracking the already-absent dataset for ${reconciled.length} account(s).`;
   }, [configuration, refreshProtocolState, safetyState]);
 
   const queueCataloguePackage = useCallback(async (pkg: CataloguePackage, password?: string) => {

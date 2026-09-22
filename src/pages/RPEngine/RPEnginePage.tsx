@@ -6,6 +6,7 @@ import type {
   AccountProtocolState,
   SelectedProtocolState,
 } from "../../models/protocol-state";
+import { isAlreadyAbsentRemoval } from "../../models/datasets";
 
 interface RPEnginePageProps {
   discovery: SelectedWowInstallationDiscovery | null;
@@ -87,7 +88,7 @@ function ProtocolStatusSurface({ state, error, onRefresh }: {
 }
 
 function ProtocolAccount({ account, isStale }: { account: AccountProtocolState; isStale: boolean }) {
-  const terminalResults = account.operationResults;
+  const terminalResults = account.operationResults.filter((result) => !isAlreadyAbsentRemoval(result));
   return (
     <Panel className="protocol-account">
       <div className="protocol-account-header"><div><p className="status-label">ACCOUNT</p><h3>{account.accountId}</h3></div><span className={`protocol-availability protocol-${account.availability}`}>{account.availability.replaceAll("_", " ")}</span></div>

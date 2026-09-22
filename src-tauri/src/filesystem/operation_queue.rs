@@ -23,8 +23,8 @@ use crate::{
         },
         backup::{BackupMetadata, BackupReason, BackupRequest, BackupStore},
         saved_variables::{
-            parse_manager_state, replace_manager_assignment, ManagerSavedVariables,
-            SavedVariablesError,
+            native_content_contains_id, parse_manager_state, replace_manager_assignment,
+            ManagerSavedVariables, SavedVariablesError,
         },
     },
     processes::wow::WowModificationSafetyState,
@@ -150,6 +150,7 @@ pub struct AccountQueueResult {
 #[serde(rename_all = "snake_case")]
 pub enum AccountQueueStatus {
     Queued,
+    Reconciled,
     Failed,
 }
 
@@ -262,7 +263,12 @@ where
         }
 
         match queue_one_account(&target, &operation, backups, validate_temporary_file) {
-            Ok(backup) => accounts.push(AccountQueueResult::queued(target.account_id, backup)),
+            Ok(AccountMutation::Queued(backup)) => {
+                accounts.push(AccountQueueResult::queued(target.account_id, backup))
+            }
+            Ok(AccountMutation::Reconciled(backup)) => {
+                accounts.push(AccountQueueResult::reconciled(target.account_id, backup))
+            }
             Err(error) => accounts.push(AccountQueueResult::failure(target.account_id, error)),
         }
     }
@@ -283,6 +289,15 @@ impl AccountQueueResult {
         }
     }
 
+    fn reconciled(account_id: String, backup: BackupMetadata) -> Self {
+        Self {
+            account_id,
+            status: AccountQueueStatus::Reconciled,
+            backup_id: Some(backup.id),
+            error: None,
+        }
+    }
+
     fn failure(account_id: String, error: AccountQueueError) -> Self {
         Self {
             account_id,
@@ -293,12 +308,18 @@ impl AccountQueueResult {
     }
 }
 
+#[derive(Debug)]
+enum AccountMutation {
+    Queued(BackupMetadata),
+    Reconciled(BackupMetadata),
+}
+
 fn queue_one_account<F>(
     target: &SavedVariablesAccountTarget,
     operation: &OperationEnvelope,
     backups: &BackupStore,
     validate_staged: F,
-) -> Result<BackupMetadata, AccountQueueError>
+) -> Result<AccountMutation, AccountQueueError>
 where
     F: Fn(&Path, &ProtocolState) -> Result<(), AccountQueueError>,
 {
@@ -307,6 +328,12 @@ where
         ManagerSavedVariables::Absent => ProtocolState::default(),
         ManagerSavedVariables::Present(state) => state,
     };
+    if operation.operation == OperationKind::RemoveDataset
+        && !native_content_contains_id(&source, &operation.dataset_id)
+            .map_err(AccountQueueError::parse)?
+    {
+        return reconcile_absent_native_content(target, operation, backups, state, validate_staged);
+    }
     reject_duplicate_request_id(&state, &operation.request_id)?;
 
     let backup = backups
@@ -334,7 +361,47 @@ where
         remove_temporary_file(&temporary_path);
         return Err(AccountQueueError::atomic_replacement(error));
     }
-    Ok(backup)
+    Ok(AccountMutation::Queued(backup))
+}
+
+fn reconcile_absent_native_content<F>(
+    target: &SavedVariablesAccountTarget,
+    operation: &OperationEnvelope,
+    backups: &BackupStore,
+    mut state: ProtocolState,
+    validate_staged: F,
+) -> Result<AccountMutation, AccountQueueError>
+where
+    F: Fn(&Path, &ProtocolState) -> Result<(), AccountQueueError>,
+{
+    state.installed_packages.remove(&operation.catalogue_id);
+    state.operation_results.retain(|_, result| {
+        !(result.operation == crate::protocol::ResultOperation::RemoveDataset
+            && result.catalogue_id.as_deref() == Some(&operation.catalogue_id)
+            && result.dataset_id.as_deref() == Some(&operation.dataset_id))
+    });
+    let backup = backups
+        .create_backup(BackupRequest {
+            source_path: target.saved_variables_path.clone(),
+            installation_id: target.installation_id.clone(),
+            account_id: Some(target.account_id.clone()),
+            reason: BackupReason::BeforeSavedVariablesModification,
+        })
+        .map_err(AccountQueueError::backup)?;
+    let source = read_source(&target.saved_variables_path)?;
+    let replacement =
+        replace_manager_assignment(&source, &state).map_err(AccountQueueError::parse)?;
+    let temporary_path =
+        write_temporary_source(&target.saved_variables_path, replacement.as_bytes())?;
+    if let Err(error) = validate_staged(&temporary_path, &state) {
+        remove_temporary_file(&temporary_path);
+        return Err(error);
+    }
+    if let Err(error) = replace_file_atomically(&temporary_path, &target.saved_variables_path) {
+        remove_temporary_file(&temporary_path);
+        return Err(AccountQueueError::atomic_replacement(error));
+    }
+    Ok(AccountMutation::Reconciled(backup))
 }
 
 fn read_source(path: &Path) -> Result<String, AccountQueueError> {
@@ -677,7 +744,7 @@ mod tests {
     fn ruleset_request(request_id: &str) -> QueueInstallRulesetRequest {
         QueueInstallRulesetRequest {
             request_id: request_id.to_owned(),
-            payload: "RPE_RULESET_V1\n{ opaque = true }".to_owned(),
+            payload: "RPE_RULESET_V2\n{ opaque = true }".to_owned(),
         }
     }
 
@@ -787,7 +854,13 @@ mod tests {
 
     #[test]
     fn queues_a_remove_request() {
-        let fixture = fixture("remove", &[("ACCOUNT_A", "RPEngineProfilesDB = {}\n")]);
+        let fixture = fixture(
+            "remove",
+            &[(
+                "ACCOUNT_A",
+                "RPEngineProfilesDB = {}\nRPEngineDatasetDB = { [\"f82db71a\"] = {} }\n",
+            )],
+        );
 
         let report = queue_remove_for_selected_accounts(
             &fixture.configuration,
@@ -808,6 +881,43 @@ mod tests {
         );
         assert_eq!(state.pending_operations[0].payload, None);
         fs::remove_dir_all(fixture.directory).expect("remove fixture");
+    }
+
+    #[test]
+    fn reconciles_an_already_absent_dataset_without_a_pending_removal() {
+        let mut state = ProtocolState::default();
+        state.installed_packages.insert(
+            "esarus-core".to_owned(),
+            crate::protocol::InstalledPackage {
+                package_type: crate::protocol::PackageType::Dataset,
+                dataset_id: "f82db71a".to_owned(),
+                revision: 1,
+                hash: HASH.to_owned(),
+                installed_at: 1,
+            },
+        );
+        let source = format!(
+            "RPEngineProfilesDB = {{ preserve = true }}\n{}\n",
+            crate::filesystem::saved_variables::serialize_manager_assignment(&state).unwrap()
+        );
+        let fixture = fixture("reconcile-absent", &[("ACCOUNT_A", &source)]);
+
+        let report = queue_remove_for_selected_accounts(
+            &fixture.configuration,
+            &fixture.backup_store,
+            safe_state,
+            remove_request("remove-absent"),
+        )
+        .unwrap();
+        assert_eq!(report.accounts[0].status, AccountQueueStatus::Reconciled);
+        let written = fs::read_to_string(fixture.source_path("ACCOUNT_A")).unwrap();
+        let ManagerSavedVariables::Present(state) = parse_manager_state(&written).unwrap() else {
+            panic!("Manager root must remain present");
+        };
+        assert!(state.pending_operations.is_empty());
+        assert!(state.installed_packages.is_empty());
+        assert!(written.contains("RPEngineProfilesDB = { preserve = true }"));
+        fs::remove_dir_all(fixture.directory).unwrap();
     }
 
     #[test]

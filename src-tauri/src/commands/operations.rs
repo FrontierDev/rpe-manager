@@ -190,6 +190,8 @@ pub enum QueueOperationCommandErrorCode {
 mod tests {
     use super::*;
     use crate::packages::download::ValidatedPackagePayload;
+    use crate::protocol::{OperationEnvelope, OperationKind};
+    use sha2::{Digest, Sha256};
 
     fn package(revision: u64) -> ValidatedPackagePayload {
         ValidatedPackagePayload {
@@ -231,5 +233,30 @@ mod tests {
         let mut missing_native_id = package(1);
         missing_native_id.native_rpe_id.clear();
         assert!(catalogue_dataset_queue_request(missing_native_id).is_err());
+    }
+
+    #[test]
+    fn crlf_verified_payload_is_queued_byte_for_byte_with_its_original_hash() {
+        let payload = "RPE_DATASET_V1\r\n{ dataset = { name = \"CRLF\" } }";
+        let mut verified = package(4);
+        verified.payload = payload.into();
+        verified.sha256 = format!("{:x}", Sha256::digest(payload.as_bytes()));
+        let request = catalogue_dataset_queue_request(verified).unwrap();
+        assert_eq!(request.payload.as_bytes(), payload.as_bytes());
+        assert_eq!(
+            request.hash,
+            format!("{:x}", Sha256::digest(request.payload.as_bytes()))
+        );
+        assert!(OperationEnvelope {
+            request_id: request.request_id,
+            operation: OperationKind::InstallDataset,
+            catalogue_id: request.catalogue_id,
+            dataset_id: request.dataset_id,
+            revision: request.revision,
+            hash: request.hash,
+            payload: Some(request.payload),
+        }
+        .validate_for_queue()
+        .is_ok());
     }
 }

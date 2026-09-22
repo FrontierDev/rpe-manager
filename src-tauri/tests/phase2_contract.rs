@@ -221,6 +221,18 @@ fn phase_two_contract_fixtures_cover_queue_update_removal_and_persisted_failures
     );
 
     let remove = only_operation(&protocol_fixture(REMOVE_FIXTURE));
+    // The Manager only queues a removal while the authored RPE database still
+    // has the native dataset. An absent native ID is now reconciled locally.
+    let source_path = fixture.source_path();
+    let source = fs::read_to_string(&source_path).unwrap();
+    fs::write(
+        &source_path,
+        format!(
+            "{source}\nRPEngineDatasetDB = {{ [\"{}\"] = {{}} }}\n",
+            remove.dataset_id
+        ),
+    )
+    .unwrap();
     let queued = queue_remove_for_selected_accounts(
         &fixture.configuration,
         &fixture.backups,
