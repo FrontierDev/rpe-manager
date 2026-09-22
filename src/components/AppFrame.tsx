@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ManagerUpdateBanner } from "./ManagerUpdateStatus";
 
 export type ManagerPage = "manager" | "advanced";
 
@@ -35,6 +36,7 @@ export function AppFrame({ children, page, onNavigate }: AppFrameProps) {
           <button className="window-control window-close" type="button" aria-label="Close window" onClick={(event) => { event.stopPropagation(); void appWindow.close(); }}><span aria-hidden="true">×</span></button>
         </div>
       </header>
+      <ManagerUpdateBanner />
       <main className="main-content">{children}</main>
     </div>
   );

@@ -115,6 +115,11 @@ a {
 .window-control { width: 42px; border: 0; background: transparent; color: #b8bdc6; font-size: 19px; line-height: 1; cursor: pointer; }
 .window-control:hover { background: #30343d; color: #fff; }
 .window-close:hover { background: #b52e37; }
+.manager-update-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: min(1160px, calc(100% - 48px)); margin: 12px auto -8px; padding: 10px 12px; border: 1px solid rgb(227 162 79 / 46%); border-radius: 6px; background: #242018; color: #f6e4c7; font-size: 12px; }
+.manager-update-banner > div { display: grid; gap: 3px; }.manager-update-banner span { color: #c5b89f; font-size: 11px; }
+.manager-update-section { padding: 14px; }.manager-update-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }.manager-update-heading h2 { margin: 0; }.manager-update-heading .status-label { margin: 0 0 3px; }
+.manager-update-details { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; margin: 12px 0; font-size: 12px; }.manager-update-details dt { color: var(--text-muted); }.manager-update-details dd { margin: 0; }
+.manager-update-message, .manager-update-progress { display: block; margin: 10px 0 0; color: #e5c58f; font-size: 12px; }.manager-update-actions { display: flex; gap: 8px; margin-top: 12px; }.manager-update-notes { margin-top: 12px; color: var(--text-muted); font-size: 12px; }.manager-update-notes summary { cursor: pointer; color: var(--accent-light); }.manager-update-notes p { white-space: pre-wrap; }
 
 .nav-button {
   padding: 7px 10px;

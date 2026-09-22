@@ -24,8 +24,13 @@ import { catalogueErrorMessage, getCataloguePackages, queueCataloguePackageInsta
 import type { CataloguePackage } from "../models/catalogue";
 import type { DatasetRow } from "../models/datasets";
 import { datasetDetailsFromExport, manualCatalogueId, nextManualRevision, sha256 } from "../state/manual-dataset";
+import { ManagerUpdatesProvider } from "../state/manager-updates";
 
 export function ManagerApp() {
+  return <ManagerUpdatesProvider><ManagerAppContent /></ManagerUpdatesProvider>;
+}
+
+function ManagerAppContent() {
   const [page, setPage] = useState<ManagerPage>("manager");
   const [configuration, setConfiguration] = useState<ManagerConfiguration | null>(null);
   const [candidates, setCandidates] = useState<WowInstallationCandidate[]>([]);
