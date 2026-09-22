@@ -39,14 +39,18 @@ a {
 }
 
 .topbar {
-  height: 78px;
+  position: relative;
+  height: 42px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 7.2%;
+  gap: 16px;
+  padding: 0 10px 0 14px;
   border-bottom: 1px solid rgb(255 255 255 / 6%);
   background: rgb(16 18 22 / 82%);
 }
+
+.window-drag-region { position: absolute; inset: 0; }
+.topbar > :not(.window-drag-region) { position: relative; z-index: 1; }
 
 .brand {
   display: inline-flex;
@@ -54,6 +58,12 @@ a {
   gap: 12px;
   color: inherit;
   text-decoration: none;
+}
+
+.brand-icon {
+  width: 23px;
+  height: 23px;
+  object-fit: contain;
 }
 
 .brand-mark {
@@ -99,6 +109,12 @@ a {
   display: flex;
   gap: 5px;
 }
+
+.primary-nav { margin-left: auto; }
+.window-controls { display: flex; align-self: stretch; margin-left: 4px; }
+.window-control { width: 42px; border: 0; background: transparent; color: #b8bdc6; font-size: 19px; line-height: 1; cursor: pointer; }
+.window-control:hover { background: #30343d; color: #fff; }
+.window-close:hover { background: #b52e37; }
 
 .nav-button {
   padding: 7px 10px;
@@ -799,6 +815,22 @@ body { background: #101216; }
 .main-content { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 20px 0 28px; }
 .page-section { padding-top: 0; margin-bottom: 24px; }
 .page-section + .page-section { margin-top: 0; }
+.advanced-page { display: grid; gap: 12px; }
+.advanced-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 4px 0 2px; }
+.advanced-header h1 { margin-bottom: 4px; }
+.advanced-header p { margin: 0; color: var(--text-muted); font-size: 12px; }
+.advanced-panel { padding: 14px; }
+.advanced-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.advanced-panel-heading .status-label { margin: 0 0 3px; }.advanced-panel-heading h2 { margin: 0; }
+.advanced-count { min-width: 24px; padding: 3px 7px; border-radius: 999px; background: #262b34; color: var(--text-muted); font-size: 11px; font-weight: 700; text-align: center; }
+.installation-list { display: grid; border-top: 1px solid rgb(255 255 255 / 7%); }
+.installation-row { display: grid; grid-template-columns: minmax(112px, .45fr) minmax(260px, 2fr) auto; align-items: center; gap: 14px; padding: 11px 2px; border-bottom: 1px solid rgb(255 255 255 / 7%); }
+.installation-name { display: flex; align-items: center; gap: 7px; font-size: 12px; }.installation-name span { padding: 2px 5px; border-radius: 3px; background: rgb(227 162 79 / 16%); color: var(--accent-light); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.installation-row code, .discovery-list code { overflow: hidden; color: #afb4be; font: 11px/1.35 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.advanced-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.discovery-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }.discovery-list li { display: grid; gap: 3px; padding-bottom: 8px; border-bottom: 1px solid rgb(255 255 255 / 7%); font-size: 11px; }.discovery-list li:last-child { padding-bottom: 0; border-bottom: 0; }
+.account-selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }.account-selection .account-option { margin: 0; padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: #1b1e25; }
+@media (max-width: 820px) { .advanced-header { align-items: flex-start; flex-direction: column; }.installation-row, .advanced-grid { grid-template-columns: 1fr; }.installation-row { gap: 5px; }.account-selection { grid-template-columns: 1fr; } }
 h1 { margin: 0 0 14px; font-size: 20px; line-height: 1.25; letter-spacing: -0.025em; }
 h2 { font-size: 15px; }
 .ui-panel { border-radius: 6px; background: #171a20; }
@@ -819,6 +851,11 @@ h2 { font-size: 15px; }
 .dataset-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #171a20; }
 .dataset-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
 .dataset-table th { padding: 8px 10px; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: #1b1e25; }
+.dataset-table .filter-header { padding: 0; vertical-align: top; }
+.filter-header > button { width: 100%; border: 0; padding: 8px 10px; background: transparent; color: inherit; font: inherit; text-align: left; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.filter-header > button:hover, .filter-header-active > button { color: #eab36e; }
+.header-filter-control { padding: 0 8px 8px; }
+.header-filter-control input, .header-filter-control select { width: 100%; min-width: 90px; box-sizing: border-box; font-size: 11px; text-transform: none; }
 .dataset-table td { padding: 9px 10px; border-top: 1px solid rgb(255 255 255 / 6%); color: #dededb; }
 .dataset-table td[colspan] { color: var(--text-muted); }
 .dataset-status { display: inline-block; color: #9fd3ad; font-size: 11px; text-transform: capitalize; }
@@ -826,6 +863,16 @@ h2 { font-size: 15px; }
 .dataset-status-pending { color: #d9b47f; }
 .secondary-button { padding: 6px 9px; border-radius: 4px; font-size: 11px; }
 .link-button { margin: 0; font-size: 11px; }
+.catalogue-actions { display: flex; gap: 7px; white-space: nowrap; }
+.catalogue-action { border: 1px solid transparent; border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.catalogue-update-button { background: #315f47; border-color: #4f9870; color: #ecfff3; }
+.catalogue-remove-button { background: #572f32; border-color: #9e555a; color: #fff1f1; }
+.catalogue-action:disabled { cursor: not-allowed; opacity: .38; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / 62%); }
+.password-dialog { width: min(420px, 100%); display: grid; gap: 12px; padding: 18px; box-shadow: 0 18px 48px rgb(0 0 0 / 45%); }
+.password-dialog h3, .password-dialog p { margin: 0; }
+.password-dialog label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .product-choice-panel { margin-top: 10px; padding: 12px; }
 .product-choice-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .ruleset-import { display: grid; gap: 10px; margin-bottom: 10px; padding: 12px; font-size: 12px; }
