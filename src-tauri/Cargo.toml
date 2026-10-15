@@ -1,6 +1,6 @@
 [package]
 name = "rpengine-manager"
-version = "0.1.4"
+version = "0.1.5"
 description = "Desktop manager for RPEngine"
 authors = ["RPEngine Manager contributors"]
 edition = "2021"
