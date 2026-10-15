@@ -21,7 +21,7 @@ import { SafetyPanel } from "../components/SafetyPanel";
 import { queueRuleset } from "../api/rulesets";
 import { queueDataset, queueDatasetRemoval as queueDatasetRemovalRequest } from "../api/datasets";
 import { catalogueErrorMessage, getCataloguePackages, queueCataloguePackageInstall } from "../api/catalogue";
-import type { CataloguePackage } from "../models/catalogue";
+import type { CatalogueFetchState, CataloguePackage } from "../models/catalogue";
 import type { DatasetRow } from "../models/datasets";
 import { datasetDetailsFromExport, manualCatalogueId, nextManualRevision, sha256 } from "../state/manual-dataset";
 import { ManagerUpdatesProvider } from "../state/manager-updates";
@@ -49,7 +49,7 @@ function ManagerAppContent() {
   const [isSafetyChecking, setIsSafetyChecking] = useState(true);
   const [manualDatasetDetails, setManualDatasetDetails] = useState<Record<string, { name: string; category: string }>>({});
   const [cataloguePackages, setCataloguePackages] = useState<CataloguePackage[]>([]);
-  const [catalogueLoading, setCatalogueLoading] = useState(false);
+  const [catalogueFetchState, setCatalogueFetchState] = useState<CatalogueFetchState>("loading");
   const [catalogueError, setCatalogueError] = useState<string | null>(null);
 
   const recheckWowSafety = useCallback(async () => {
@@ -70,10 +70,14 @@ function ManagerAppContent() {
   }, []);
 
   const refreshCatalogue = useCallback(async () => {
-    setCatalogueLoading(true); setCatalogueError(null);
-    try { setCataloguePackages((await getCataloguePackages()).packages); }
-    catch (error) { setCatalogueError(catalogueErrorMessage(error, "The Esarus catalogue could not be loaded.")); }
-    finally { setCatalogueLoading(false); }
+    setCatalogueFetchState("loading"); setCatalogueError(null);
+    try {
+      setCataloguePackages((await getCataloguePackages()).packages);
+      setCatalogueFetchState("complete");
+    } catch (error) {
+      setCatalogueFetchState("error");
+      setCatalogueError(catalogueErrorMessage(error, "The Esarus catalogue could not be loaded."));
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -220,7 +224,7 @@ function ManagerAppContent() {
   }, [configuration, refreshProtocolState, safetyState]);
 
   const content = page === "manager"
-    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} rpeUpdateState={rpeUpdateState} rpeOperation={rpeOperation} rpeOperationError={rpeOperationError} safetyState={safetyState} onRpeOperation={() => void runRpeOperation()} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} cataloguePackages={cataloguePackages} catalogueLoading={catalogueLoading} catalogueError={catalogueError} onRefreshCatalogue={() => void refreshCatalogue()} onQueueCataloguePackage={queueCataloguePackage} />
+    ? <ManagerPageContent configuration={configuration} discovery={localDiscovery} rpeUpdateState={rpeUpdateState} rpeOperation={rpeOperation} rpeOperationError={rpeOperationError} safetyState={safetyState} onRpeOperation={() => void runRpeOperation()} protocolState={protocolState} errorMessage={errorMessage} productChoices={productChoices} isLoading={isLoading} isSelecting={isSelecting} onChooseFolder={() => void chooseInstallation()} onSelectInstallation={(path) => { if (path) void chooseInstallation(path); }} onSelectProduct={(path) => void chooseInstallation(path)} onToggleAccount={toggleAccount} onQueueRuleset={queueImportedRuleset} onQueueDataset={queueImportedDataset} onQueueDatasetRemoval={queueDatasetRemoval} onRefresh={() => void refresh()} manualDatasetDetails={manualDatasetDetails} cataloguePackages={cataloguePackages} catalogueFetchState={catalogueFetchState} catalogueError={catalogueError} onRefreshCatalogue={() => void refreshCatalogue()} onQueueCataloguePackage={queueCataloguePackage} />
     : <><SettingsPage configuration={configuration} discovery={localDiscovery} candidates={candidates} onToggleAccount={toggleAccount} /><section className="page-section"><SafetyPanel state={safetyState} errorMessage={safetyErrorMessage} isChecking={isSafetyChecking} onRecheck={() => void recheckWowSafety()} /></section><RPEnginePage discovery={localDiscovery} updateState={rpeUpdateState} safetyState={safetyState} isOperating={rpeOperation} operationError={rpeOperationError} onOperate={() => void runRpeOperation()} protocolState={protocolState} protocolErrorMessage={protocolErrorMessage} onRefreshProtocol={() => void refresh()} /></>;
   return <AppFrame page={page} onNavigate={setPage}>{content}</AppFrame>;
 }

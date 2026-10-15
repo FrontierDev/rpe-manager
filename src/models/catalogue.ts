@@ -14,6 +14,7 @@ export interface CataloguePackage {
   protected: boolean;
 }
 
+export type CatalogueFetchState = "loading" | "complete" | "error";
 export type CatalogueInstallState = "not_installed" | "queued" | "installed" | "update_available" | "failed";
 
 export interface CataloguePackagePresentation {
@@ -27,10 +28,28 @@ export interface CataloguePackagePresentation {
 export function catalogueInstallState(pkg: CataloguePackage, accounts: AccountProtocolState[]): CatalogueInstallState {
   const matching = (item: { catalogueId?: string }) => item.catalogueId === pkg.catalogueId;
   if (accounts.some((account) => account.pendingOperations.some(matching))) return "queued";
-  if (accounts.some((account) => account.operationResults.some((result) => matching(result) && result.status === "failed"))) return "failed";
   const installed = accounts.flatMap((account) => account.installedPackages).filter((item) => item.catalogueId === pkg.catalogueId);
+  const failed = accounts.flatMap((account) => account.operationResults)
+    .filter((result) => matching(result) && result.status === "failed");
+  if (failed.some((result) => {
+    const revision = result.revision;
+    return result.operation === "remove_dataset"
+      || installed.length === 0
+      || revision === undefined
+      || installed.some((item) => item.revision < revision);
+  })) return "failed";
   if (installed.length === 0) return "not_installed";
   return installed.some((item) => item.revision < pkg.currentRevision) ? "update_available" : "installed";
+}
+
+export function catalogueInstallStateLabel(state: CatalogueInstallState): string {
+  switch (state) {
+    case "not_installed": return "Not installed";
+    case "queued": return "Login Required";
+    case "installed": return "Installed";
+    case "update_available": return "Update Available";
+    case "failed": return "Failed";
+  }
 }
 
 export function installedCatalogueIdentity(pkg: CataloguePackage, accounts: AccountProtocolState[]) {

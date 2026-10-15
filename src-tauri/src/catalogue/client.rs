@@ -4,12 +4,15 @@ use reqwest::{blocking::Client, header::HeaderMap, Url};
 use serde::de::DeserializeOwned;
 
 use super::{
-    CataloguePackagesResponse, PackageDetailResponse, PublishersResponse, RevisionDetailResponse,
-    RevisionsResponse,
+    CataloguePackagesResponse, PackageDetailResponse, Pagination, PublishersResponse,
+    RevisionDetailResponse, RevisionsResponse,
 };
 
 pub const DEFAULT_BASE_URL: &str = "https://esarus.net/api/rpe/v1";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const CATALOGUE_PAGE_SIZE: u32 = 100;
+const MAX_CATALOGUE_PAGES: usize = 1_000;
+const MAX_CATALOGUE_PACKAGES: usize = 100_000;
 
 #[derive(Clone)]
 pub struct CatalogueClient {
@@ -63,6 +66,80 @@ impl CatalogueClient {
             }
         }
         self.get(url)
+    }
+
+    /// Reads the complete published catalogue before returning it. A partial
+    /// response is deliberately an error so callers cannot mistake an
+    /// incomplete page sequence for a package withdrawal.
+    pub fn get_all_catalogue_packages(&self) -> Result<CataloguePackagesResponse, CatalogueError> {
+        let mut offset = 0_u32;
+        let mut pages = 0_usize;
+        let mut packages = std::collections::BTreeMap::new();
+
+        loop {
+            if pages >= MAX_CATALOGUE_PAGES {
+                return Err(CatalogueError::UnsupportedResponse(
+                    "catalogue pagination exceeded the maximum page count".into(),
+                ));
+            }
+            pages += 1;
+
+            let page = self.get_catalogue_packages(Some(CATALOGUE_PAGE_SIZE), Some(offset))?;
+            if page.pagination.offset != offset {
+                return Err(CatalogueError::UnsupportedResponse(format!(
+                    "catalogue pagination returned offset {}, expected {offset}",
+                    page.pagination.offset
+                )));
+            }
+            let page_is_empty = page.packages.is_empty();
+            for package in page.packages {
+                packages
+                    .entry(package.catalogue_id.clone())
+                    .or_insert(package);
+                if packages.len() > MAX_CATALOGUE_PACKAGES {
+                    return Err(CatalogueError::UnsupportedResponse(
+                        "catalogue pagination exceeded the maximum package count".into(),
+                    ));
+                }
+            }
+
+            if !page.pagination.has_more {
+                return Ok(CataloguePackagesResponse {
+                    packages: packages.into_values().collect(),
+                    pagination: Pagination {
+                        limit: CATALOGUE_PAGE_SIZE,
+                        offset: 0,
+                        has_more: false,
+                    },
+                });
+            }
+
+            if page_is_empty {
+                return Err(CatalogueError::UnsupportedResponse(
+                    "catalogue pagination returned an empty page with more results".into(),
+                ));
+            }
+            if page.pagination.limit == 0 {
+                return Err(CatalogueError::UnsupportedResponse(
+                    "catalogue pagination did not provide a page size".into(),
+                ));
+            }
+            let next_offset = page
+                .pagination
+                .offset
+                .checked_add(page.pagination.limit)
+                .ok_or_else(|| {
+                    CatalogueError::UnsupportedResponse(
+                        "catalogue pagination offset overflowed".into(),
+                    )
+                })?;
+            if next_offset <= offset {
+                return Err(CatalogueError::UnsupportedResponse(
+                    "catalogue pagination did not advance".into(),
+                ));
+            }
+            offset = next_offset;
+        }
     }
 
     pub fn get_package(&self, catalogue_id: &str) -> Result<PackageDetailResponse, CatalogueError> {
@@ -286,6 +363,21 @@ mod tests {
         format!("http://{address}/api/rpe/v1")
     }
 
+    fn paged_server(bodies: Vec<String>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for body in bodies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 2048];
+                let _ = stream.read(&mut request);
+                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://{address}/api/rpe/v1")
+    }
+
     #[test]
     fn parses_catalogue_dataset_protection_dependencies_and_distinct_identity() {
         let mut package: serde_json::Value = serde_json::from_str(PACKAGE).unwrap();
@@ -308,6 +400,48 @@ mod tests {
             Some("ruleset")
         );
         assert!(response.pagination.has_more);
+    }
+
+    #[test]
+    fn exhausts_catalogue_pages_and_deduplicates_ids() {
+        let mut first_page = Vec::new();
+        for index in 0..100 {
+            let mut package: serde_json::Value = serde_json::from_str(PACKAGE).unwrap();
+            package["catalogueId"] = json!(format!("catalogue.{index}"));
+            first_page.push(package);
+        }
+        let mut duplicate: serde_json::Value = serde_json::from_str(PACKAGE).unwrap();
+        duplicate["catalogueId"] = json!("catalogue.99");
+        let mut last: serde_json::Value = serde_json::from_str(PACKAGE).unwrap();
+        last["catalogueId"] = json!("catalogue.100");
+        let client = CatalogueClient::new(&paged_server(vec![
+            json!({ "packages": first_page, "pagination": { "limit": 100, "offset": 0, "hasMore": true } }).to_string(),
+            json!({ "packages": [duplicate, last], "pagination": { "limit": 100, "offset": 100, "hasMore": false } }).to_string(),
+        ])).unwrap();
+
+        let response = client.get_all_catalogue_packages().unwrap();
+
+        assert_eq!(response.packages.len(), 101);
+        assert!(response
+            .packages
+            .iter()
+            .any(|package| package.catalogue_id == "catalogue.100"));
+        assert!(!response.pagination.has_more);
+    }
+
+    #[test]
+    fn rejects_a_partial_catalogue_page_sequence() {
+        let client = CatalogueClient::new(&paged_server(vec![
+            json!({ "packages": [serde_json::from_str::<serde_json::Value>(PACKAGE).unwrap()], "pagination": { "limit": 100, "offset": 0, "hasMore": true } })
+                .to_string(),
+            "not json".into(),
+        ]))
+        .unwrap();
+
+        assert!(matches!(
+            client.get_all_catalogue_packages(),
+            Err(CatalogueError::MalformedResponse(_))
+        ));
     }
 
     #[test]

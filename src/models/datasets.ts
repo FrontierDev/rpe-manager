@@ -38,10 +38,11 @@ export function isAlreadyAbsentRemoval(result: OperationResult): boolean {
 
 export function getDatasetRows(protocolState: AccountProtocolState[], manualDetails: Record<string, { name: string; category: string }> = {}): DatasetRow[] {
   const rows = new Map<string, DatasetRow>();
+  const alreadyAbsentIds = new Set<string>();
   const setRow = (row: DatasetRow) => {
     const existing = rows.get(row.id);
-    // An installed manifest is authoritative over an old successful result,
-    // while pending/failed operations remain useful before installation.
+    // An installed manifest is authoritative over historical operation results;
+    // pending operations remain visible until RPE reconciles them.
     if (existing === undefined || statusPriority(row.status) >= statusPriority(existing.status)) {
       rows.set(row.id, row);
     }
@@ -64,17 +65,20 @@ export function getDatasetRows(protocolState: AccountProtocolState[], manualDeta
         continue;
       }
       const isRuleset = operation.operation === "install_ruleset";
+      const installed = operation.operation === "install_dataset"
+        ? account.installedPackages.find((item) => item.catalogueId === operation.catalogueId)
+        : undefined;
       setRow({
         id: isRuleset ? `ruleset/${operation.requestId}` : `${operation.catalogueId}/${operation.datasetId}`,
         dataset: isRuleset ? "Ruleset import" : operation.datasetId,
         publisher: isRuleset || operation.catalogueId.startsWith("manual.") ? "Manual" : operation.catalogueId,
-        installedRevision: null,
+        installedRevision: installed?.revision ?? null,
         availableRevision: null,
         status: "pending",
         category: isRuleset ? "Ruleset" : manualDetails[operation.datasetId]?.category ?? "Unknown",
         catalogueId: operation.catalogueId,
         datasetId: operation.datasetId,
-        hash: operation.hash,
+        hash: installed?.hash ?? operation.hash,
       });
     }
     for (const item of account.installedPackages) {
@@ -101,45 +105,24 @@ export function getDatasetRows(protocolState: AccountProtocolState[], manualDeta
       }
     }
     for (const result of account.operationResults) {
-      if (result.operation === "remove_dataset") {
-        // A successful removal disappears once RPE has advanced its manifest.
-        // Retain only a persisted failure so the user can see why it remains.
-        if (result.status === "failed" && !isAlreadyAbsentRemoval(result) && result.catalogueId && result.datasetId) {
-          setRow({
-            id: `${result.catalogueId}/${result.datasetId}`,
-            dataset: manualDetails[result.datasetId]?.name ?? result.datasetId,
-            publisher: result.catalogueId.startsWith("manual.") ? "Manual" : result.catalogueId,
-            installedRevision: result.revision ?? null,
-            availableRevision: null,
-            status: "failed",
-            category: manualDetails[result.datasetId]?.category ?? "Unknown",
-            catalogueId: result.catalogueId,
-            datasetId: result.datasetId,
-            hash: result.hash ?? null,
-          });
-        }
-        continue;
+      if (result.operation === "remove_dataset" && isAlreadyAbsentRemoval(result)) {
+        const id = result.catalogueId && result.datasetId ? `${result.catalogueId}/${result.datasetId}` : null;
+        if (id !== null) alreadyAbsentIds.add(id);
       }
-      if (result.operation !== "install_dataset" && result.operation !== "install_ruleset") continue;
-      // A terminal success records history, not current installation. The
-      // installed manifest is the authoritative source for table membership.
-      if (result.status === "succeeded") continue;
-      const isRuleset = result.operation === "install_ruleset";
-      const catalogueId = result.catalogueId ?? "local";
-      const datasetId = result.datasetId ?? "ruleset-import";
-      setRow({
-        id: isRuleset ? `ruleset/${result.requestId}` : `${catalogueId}/${datasetId}`,
-        dataset: isRuleset ? "Ruleset import" : manualDetails[datasetId]?.name ?? datasetId,
-        publisher: isRuleset || catalogueId.startsWith("manual.") ? "Manual" : catalogueId,
-        installedRevision: result.revision ?? null,
-        availableRevision: null,
-        status: "failed",
-        category: isRuleset ? "Ruleset" : manualDetails[datasetId]?.category ?? "Unknown",
-        catalogueId,
-        datasetId,
-        hash: result.hash ?? null,
-      });
+      // Terminal results are history. Current membership comes from the
+      // installed manifest and pending operations above.
     }
+  }
+  for (const id of alreadyAbsentIds) {
+    const hasActiveManifest = protocolState.some((account) => account.installedPackages.some((item) => {
+      if (`${item.catalogueId}/${item.datasetId}` !== id) return false;
+      return !account.operationResults.some((result) => isAlreadyAbsentRemoval(result)
+        && result.catalogueId === item.catalogueId
+        && result.datasetId === item.datasetId
+        && result.revision === item.revision
+        && result.hash === item.hash);
+    }));
+    if (!hasActiveManifest) rows.delete(id);
   }
   return [...rows.values()].sort((left, right) => left.dataset.localeCompare(right.dataset));
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogueInstallState, cataloguePackagePresentation, type CataloguePackage } from "./catalogue";
+import { catalogueInstallState, catalogueInstallStateLabel, cataloguePackagePresentation, type CataloguePackage } from "./catalogue";
 
 const pkg: CataloguePackage = { catalogueId: "catalogue.one", publisherId: "p", publisherType: "player", publisherDisplayName: "P", packageType: "dataset", nativeRpeId: "native.one", datasetType: "campaign", datasetGroup: null, name: "One", currentRevision: 2, protected: false };
 const account = (overrides = {}) => ({ accountId: "A", availability: "available" as const, pendingOperations: [], operationResults: [], installedPackages: [], ...overrides });
@@ -39,5 +39,16 @@ describe("catalogueInstallState", () => {
 
     expect(cataloguePackagePresentation(newerPackage, [account({ installedPackages, pendingOperations })])).toMatchObject({ state: "queued", installedRevision: 2, availableRevision: 4, hasUpdate: true });
     expect(cataloguePackagePresentation(newerPackage, [account({ installedPackages, operationResults })])).toMatchObject({ state: "failed", installedRevision: 2, availableRevision: 4, hasUpdate: true });
+  });
+  it("clears a historical failed update after the manifest advances", () => {
+    const operationResults = [{ requestId: "r", operation: "install_dataset" as const, status: "failed" as const, catalogueId: "catalogue.one", datasetId: "native.one", revision: 4 }];
+    const installedPackages = [{ catalogueId: "catalogue.one", packageType: "dataset" as const, datasetId: "native.one", revision: 4, hash: "b", installedAt: 2 }];
+
+    expect(catalogueInstallState({ ...pkg, currentRevision: 4 }, [account({ installedPackages, operationResults })])).toBe("installed");
+  });
+
+  it("maps queued operations to the user action label", () => {
+    expect(catalogueInstallStateLabel("queued")).toBe("Login Required");
+    expect(catalogueInstallStateLabel("update_available")).toBe("Update Available");
   });
 });

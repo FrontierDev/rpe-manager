@@ -23,12 +23,9 @@ impl From<CatalogueError> for CatalogueCommandError {
 }
 
 #[tauri::command]
-pub fn get_catalogue_packages(
-    limit: Option<u32>,
-    offset: Option<u32>,
-) -> Result<CataloguePackagesResponse, CatalogueCommandError> {
+pub fn get_catalogue_packages() -> Result<CataloguePackagesResponse, CatalogueCommandError> {
     CatalogueClient::production()?
-        .get_catalogue_packages(limit, offset)
+        .get_all_catalogue_packages()
         .map_err(Into::into)
 }
 #[tauri::command]

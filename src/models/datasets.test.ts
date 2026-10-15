@@ -24,14 +24,14 @@ describe("dataset table rows", () => {
     ]));
   });
 
-  it("surfaces a failed import result", () => {
+  it("does not keep a failed install as a ghost row", () => {
     const rows = getDatasetRows([{
       ...account,
       pendingOperations: [],
       operationResults: [{ requestId: "dataset-1", operation: "install_dataset", status: "failed" as const, catalogueId: "manual.abc", datasetId: "example", revision: 1, hash: "a", error: { code: "import_rejected", detail: "Invalid export" } }],
     }]);
 
-    expect(rows[0]).toMatchObject({ dataset: "example", status: "failed" });
+    expect(rows).toEqual([]);
   });
 
   it("keeps an installed dataset visible as removal pending until RPE processes it", () => {
@@ -65,5 +65,37 @@ describe("dataset table rows", () => {
     }]);
 
     expect(rows).toEqual([]);
+  });
+
+  it("keeps a pending update tied to the installed manifest identity", () => {
+    const rows = getDatasetRows([{
+      ...account,
+      pendingOperations: [{ requestId: "update-1", operation: "install_dataset", catalogueId: "catalogue.one", datasetId: "example", revision: 2, hash: "new-hash", hasPayload: true }],
+      operationResults: [],
+      installedPackages: [{ catalogueId: "catalogue.one", packageType: "dataset", datasetId: "example", revision: 1, hash: "installed-hash", installedAt: 1 }],
+    }]);
+
+    expect(rows).toEqual([expect.objectContaining({ status: "pending", installedRevision: 1, hash: "installed-hash" })]);
+  });
+
+  it("keeps manual installations visible without treating them as withdrawn", () => {
+    const rows = getDatasetRows([{
+      ...account,
+      pendingOperations: [],
+      operationResults: [],
+      installedPackages: [{ catalogueId: "manual.example", packageType: "dataset", datasetId: "example", revision: 1, hash: "a", installedAt: 1 }],
+    }], { example: { name: "Example import", category: "Campaign" } });
+
+    expect(rows).toEqual([expect.objectContaining({ dataset: "Example import", publisher: "Manual", status: "installed" })]);
+  });
+
+  it("preserves an installed account when another selected account has already removed it", () => {
+    const installed = { catalogueId: "catalogue.one", packageType: "dataset" as const, datasetId: "example", revision: 1, hash: "a", installedAt: 1 };
+    const rows = getDatasetRows([
+      { ...account, accountId: "ACCOUNT_A", pendingOperations: [], operationResults: [], installedPackages: [installed] },
+      { ...account, accountId: "ACCOUNT_B", pendingOperations: [], installedPackages: [], operationResults: [{ requestId: "remove-1", operation: "remove_dataset" as const, status: "failed" as const, catalogueId: "catalogue.one", datasetId: "example", revision: 1, hash: "a", error: { code: "remove_rejected", detail: "The installed dataset is already absent." } }] },
+    ]);
+
+    expect(rows).toEqual([expect.objectContaining({ catalogueId: "catalogue.one", status: "installed" })]);
   });
 });

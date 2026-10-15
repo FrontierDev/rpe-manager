@@ -3,7 +3,7 @@ import type { CataloguePackage } from "../models/catalogue";
 import type { QueueDatasetReport } from "./datasets";
 
 export function getCataloguePackages(): Promise<{ packages: CataloguePackage[] }> {
-  return invoke("get_catalogue_packages", { limit: 100, offset: 0 });
+  return invoke("get_catalogue_packages");
 }
 
 export function queueCataloguePackageInstall(request: { catalogueId: string; revision?: number; password?: string }): Promise<QueueDatasetReport> {
